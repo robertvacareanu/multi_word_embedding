@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from mwe_function_model import IdentityModel
 
 """
 Generate embeddings for a multi-word entity (mwe) by training a function f to map multiple embeddings to a single one.
@@ -18,7 +17,6 @@ class MWESkipGramTaskModel(nn.Module):
 
     def __init__(self, embedding_function, mwe_f):
         super().__init__()
-        # nn.Embedding.from_pretrained()
         self.embedding_function = embedding_function
         self.mwe_f = mwe_f
         self.ls = nn.LogSigmoid()
@@ -91,24 +89,38 @@ class MWEMeanSquareErrorTaskModel(nn.Module):
 class MWESentenceSkipGramTaskModel(nn.Module):
     """
     The train procedure is similar with the skip-gram, namely, the resulting word embedding should have good
-    capabilities of predicting its neighbors. This works mainly with LSTMs, since it builds the vector by going over the whole left context to predict
-    the right and vice-versa
+    capabilities of predicting its neighbors. The mwe_f is usually an RNN, since it builds the vector by going over the whole left context to predict
+    the right and vice-versa, but anything capable of mapping a a sequence of vectors to a single vector words 
     """
 
     def __init__(self, embedding_function, mwe_f):
         super().__init__()
-        # nn.Embedding.from_pretrained()
         self.embedding_function = embedding_function
         self.mwe_f = mwe_f
         self.ls = nn.LogSigmoid()
 
-    def forward(self, left_part_vectorized, right_part_vectorized, right_context, left_context, lens, negative_examples_left, negative_examples_right):
-        batch_size = left_part_vectorized.shape[0]
+    def forward(self, left_sentence_vectorized, right_sentence_vectorized, right_context, left_context, lens, negative_examples_left, negative_examples_right):
+        """
+        This function is according to the description of Mikolov in "Distributed Representations of Words and Phrases
+         and their Compositionality" (@link https://arxiv.org/pdf/1310.4546.pdf) for negative sampling.
+        :param center_words: (batch_size, max_entity_length) - represents the center words used for predicting the
+        outside words
+        :param left_part_vectorized: (batch_size, max_left_part_len) - the left part of the sentence, including the mwe
+        :param right_part_vectorized: (batch_size, max_right_part_len) - the right part of the sentence, including the mwe
+        :param right_context: (batch_size, window_size) - right context 
+        :param left_context: (batch_size, window_size) - left context
+        :param lens: dictionary that hold the lengths for left_sentence_vectorized and right_sentence_vectorized
+        :param negative_examples_left:  (batch_size * context_size, neg_sample_size) - represents negative samples for each outside_word of left_context
+        :param negative_examples_right: (batch_size * context_size, neg_sample_size) - represents negative samples for each outside_word of right_context
+        :return: The loss, as described in the Mikolov paper
+
+        """
+        batch_size = left_sentence_vectorized.shape[0]
 
         rc_not_pad = right_context.reshape(-1) != 0
         lpv_lens_sorted, lpv_lens_idx = lens['lpv_len'].sort(descending=True)
         # (batch_size, window_size, embedding_size)
-        left_part_embeddings = self.embedding_function.center_embeddings(left_part_vectorized)
+        left_part_embeddings = self.embedding_function.center_embeddings(left_sentence_vectorized)
         # (batch_size, embedding_size)
         mwe_left = self.mwe_f(left_part_embeddings[lpv_lens_idx], lpv_lens_sorted)
         # (batch_size, embedding_size)
@@ -120,7 +132,7 @@ class MWESentenceSkipGramTaskModel(nn.Module):
 
         lc_not_pad = left_context.reshape(-1) != 0
         rpv_lens_sorted, rpv_lens_idx = lens['rpv_len'].sort(descending=True)
-        right_part_embeddings = self.embedding_function.center_embeddings(right_part_vectorized)
+        right_part_embeddings = self.embedding_function.center_embeddings(right_sentence_vectorized)
         mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted)
         mwe_right = torch.zeros_like(mwe_right).to(mwe_right.device).scatter_(0, rpv_lens_idx.unsqueeze(dim=1).expand(-1, mwe_right.shape[1]).to(mwe_right.device), mwe_right) # unsort
         mwe_right = mwe_right.unsqueeze(dim=1).expand(-1, left_context.shape[1], -1).reshape(-1, mwe_right.shape[1])[lc_not_pad]
@@ -134,8 +146,6 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         negative_samples_left_embeddings = self.embedding_function.context_embeddings(negative_examples_left)
         negative_samples_right_embeddings = self.embedding_function.context_embeddings(negative_examples_right)
 
-
-
         positive_loss_right = -self.ls(torch.sum(right_context_embeddings * mwe_left, dim=1))
         negative_loss_right = torch.sum(-self.ls(torch.bmm(-negative_samples_right_embeddings, mwe_left.unsqueeze(dim=2)).squeeze(dim=2)), dim=1)
 
@@ -146,7 +156,7 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         loss = (positive_loss_right + negative_loss_right).mean() + (positive_loss_left + negative_loss_left).mean()
         return loss
 
-
+# TODO Abstract
 class MWEWordLevelSkipGramTaskModel(nn.Module):
     """
     Task model for word-level skip-gram
@@ -204,15 +214,14 @@ class MWEJointTraining(nn.Module):
         self.mwe_task_model = MWESkipGramTaskModel(embedding_function, mwe_f)
 
     def forward(self, params_words, params_mwes):
+        # (batch_size * sentence_length), (batch_size * sentence_length, 2*window_size), (context_size, number_of_negative_examples)
         center_words, outside_words, negative_examples_words = params_words
-        center_words = center_words.squeeze(dim=1)
         mwe_words, mwe_length, outside_mwe_words, negative_examples_mwe = params_mwes
 
         not_pads_idx = outside_words.reshape(-1) != 0
 
-
         center_words_embeddings = self.embedding_function.center_embeddings(center_words)
-        # (batch_size, mwe_hidden_size=embedding_size)
+        # (batch_size, embedding_size)
         center_words_embeddings = center_words_embeddings.unsqueeze(dim=1).expand(-1, outside_words.shape[1], -1).reshape(-1, center_words_embeddings.shape[1])[not_pads_idx] # (batch_size * context_size, embedding_size)
 
         # (batch_size, window_size * 2, embedding_size)
@@ -229,10 +238,10 @@ class MWEJointTraining(nn.Module):
         negative_loss = torch.sum(-self.ls(torch.bmm(-negative_samples_embeddings, center_words_embeddings.unsqueeze(dim=2)).squeeze(dim=2)), dim=1)
 
         loss_words = positive_loss + negative_loss
-        loss_words = loss_words.mean()
+        # loss_words = loss_words.mean()
         
         loss_mwes = self.mwe_task_model.forward(mwe_words, mwe_length, outside_mwe_words, negative_examples_mwe)
         
-        loss = loss_words + 10 * loss_mwes
+        loss = loss_words + loss_mwes
 
         return loss.mean()

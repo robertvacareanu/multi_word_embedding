@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 import torch
+import numpy as np
 import gensim
 import tempfile
 
@@ -57,6 +58,7 @@ def make_sgot_word_vocab(corpus, mwes, corpus_reader):
                 vocab.add(constituent, 1)
     return vocab
 
+
 def make_word_vocab_from_gensim_file(file, count_threshold=5):
     """
     Make the vocabulary from the gensim model. Useful when already using some word embeddings with gensim -- 
@@ -107,6 +109,8 @@ class AbstractVocabulary(object):
             self.element2id['<unk>'] = 1
             self.counts = [0] * len(self.element2id)
         self.unk_id = self.element2id['<unk>']
+        self.pad_id = 0
+        self.pad_token = '<pad>'
         self.id2element = {v: k for k, v in self.element2id.items()}
 
     def __getitem__(self, element):
@@ -152,6 +156,7 @@ class AbstractVocabulary(object):
             self.counts[self[potential_element]] += count
             return self[potential_element]
 
+    # Given a list of elements, return a list of indices by looking into element2id
     def elements2indices(self, elements: List):
         if type(elements[0]) == list:
             return [[self[el] for el in sub_elements] for sub_elements in elements]
@@ -169,6 +174,17 @@ class AbstractVocabulary(object):
         if type(elements[0]) == list:
             elements_ids = pad_sentence(elements_ids, self['<pad>'])
         return torch.tensor(elements_ids, dtype=torch.long, device=device)
+
+    def to_input_array(self, elements: List):
+        """
+        Convert list of sentences (sentence = list of words) into tensor with necessary padding for shorter sentences
+        :param sentences: (List[List]) list of sentences
+        :return: array of (batch, max_sentence_length)
+        """
+        elements_ids = self.elements2indices(elements)
+        if type(elements[0]) == list:
+            elements_ids = pad_sentence(elements_ids, self['<pad>'])
+        return np.array(elements_ids, dtype=int)
 
     def save(self, filepath):
         """

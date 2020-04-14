@@ -4,12 +4,13 @@ import json
 
 import numpy as np
 import time
+import torch
 import torch.optim
 import os
 from torch.utils import data
 from datetime import datetime
 
-from dataset import EntitySentenceDataset, EntitySentenceDirectMinimizationDataset, JointTrainingSGMinimizationDataset
+from dataset import WordWiseSGMweDataset, SkipGramMinimizationDataset, JointTrainingSGMinimizationDataset, SentenceWiseSGMweDataset, DirectMinimizationDataset
 from embeddings import SkipGramEmbeddings, RandomInitializedEmbeddings
 from evaluate import Evaluation, Evaluation2
 from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel
@@ -47,9 +48,9 @@ class MWETrain(object):
         # Different training regimes may need different data format (or more data)
         # This maps from a training regimes to its corresponding dataset
         dataset_function_map = {
-            'DirectMinimization': EntitySentenceDirectMinimizationDataset, 
-            'SkipGramMinimization': EntitySentenceDataset, 
-            'SkipGramSentenceMinimization': EntitySentenceDataset,
+            'DirectMinimization': DirectMinimizationDataset, 
+            'SkipGramMinimization': WordWiseSGMweDataset, 
+            'SkipGramSentenceMinimization': SentenceWiseSGMweDataset,
             'JointTrainingSkipGramMinimization': JointTrainingSGMinimizationDataset}
 
         # Maps from a training regime to a function that knows how to prepare the expected output
@@ -84,6 +85,30 @@ class MWETrain(object):
 
         self.device = torch.device(f"cuda:{params['which_cuda']}" if torch.cuda.is_available(
         ) and params['which_cuda'] is not None else "cpu")
+
+        negative_sampling_distribution = torch.tensor(
+            self.vocabulary.counts).float().to(self.device)
+        negative_sampling_distribution = negative_sampling_distribution.pow(
+            3 / 4)
+        nsd = negative_sampling_distribution.cpu().numpy()
+        self.negative_sampling_distribution = negative_sampling_distribution.div(
+            negative_sampling_distribution.sum(dim=0))
+        self.number_of_negative_examples = params['number_of_negative_examples']
+
+        dataset_params = {
+            'DirectMinimization': {'train_file': params['train_file']},
+            'SkipGramMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
+                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
+                                    'negative_examples_distribution': nsd, 'full_sentence': False},
+            'SkipGramSentenceMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
+                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
+                                    'negative_examples_distribution': nsd, 'full_sentence': False},
+            'JointTrainingSkipGramMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
+                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
+                                    'negative_examples_distribution': nsd}
+        }
+
+
         self.num_epochs = params['num_epochs']
         self.save_path = params['save_path']
         self.batch_size = params['batch_size']
@@ -119,46 +144,20 @@ class MWETrain(object):
 
         # self.optimizer = torch.optim.Adam(
         # self.task_model.parameters(), lr=self.learning_rate, weight_decay=params['weight_decay'])
-        self.optimizer = torch.optim.Adagrad(
+        self.optimizer = torch.optim.SGD(
             self.task_model.parameters(), lr=self.learning_rate, weight_decay=params['weight_decay'])
         # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.5)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, factor=0.5, patience=3, min_lr=0.0005, cooldown=0, )
         
-        self.dataset = dataset_function_map[params['train_objective']](
-            params['train_file'], params['window_size'])#, params['train_objective']=='SkipGramSentenceMinimization')
+        self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
         self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=10, shuffle=False,
                                                      collate_fn=lambda nparr: nparr)
         print(len(self.generator))
 
-        negative_sampling_distribution = torch.tensor(
-            self.vocabulary.counts).float().to(self.device)
-        negative_sampling_distribution = negative_sampling_distribution.pow(
-            3 / 4)
-        self.negative_sampling_distribution = negative_sampling_distribution.div(
-            negative_sampling_distribution.sum(dim=0))
-        self.number_of_negative_examples = params['number_of_negative_examples']
         self.number_of_iter = 1000
         self.debug = False
 
-    def generate_negative_examples(self, batch_size, words_to_avoid):
-        """
-        :param batch_size: The number of samples in a batch
-        :param words_to_avoid: The words for which to generate negative examples (context), of shape (batch_size * context_size)
-        :return: a tensor containing the negative examples, of shape (batch_size * context_size, number_of_negative_examples)
-        """
-        # Generate negative samples
-        negative_examples = torch.multinomial(self.negative_sampling_distribution, num_samples=self.number_of_negative_examples *
-                                              words_to_avoid.shape[0], replacement=True).reshape(-1, self.number_of_negative_examples).to(self.device) # (batch * context_size, number_of_negative_examples)
-        # Compare negative samples with the words that are indeed in the context (compare 2d tensor to 2d), a (batch_size, number_of_negative_samples) tensor to a (batch_size, 1) tensor
-        indices_to_change = (negative_examples == (words_to_avoid.unsqueeze(dim=1))) == True
-        while torch.any(indices_to_change):
-            replacement = torch.multinomial(self.negative_sampling_distribution, num_samples=torch.nonzero(
-                indices_to_change).shape[0], replacement=True).to(self.device)
-            negative_examples[indices_to_change] = replacement
-            indices_to_change = (negative_examples == (words_to_avoid.unsqueeze(dim=1))) == True
-
-        return negative_examples
 
     def train(self):
         begin_time = time.time()
@@ -316,73 +315,75 @@ class MWETrain(object):
         return mwe_vectorized, mwe_len, learned_multi_word_entities
 
     def prepare_skipgram_minimization(self, batch):
-        batch = np.array(batch, dtype=object)
-        multi_word_entities = batch[:,1].tolist()
-        multi_word_entities_indices = sorted(range(len(
-            multi_word_entities)), key=lambda x: len(multi_word_entities[x]), reverse=True)
-        mwe_len = torch.tensor([len(s) for s in multi_word_entities])[multi_word_entities_indices]
-        multi_word_entities = self.vocabulary.to_input_tensor(
-            multi_word_entities, self.device)
-        mwe_vectorized = multi_word_entities[multi_word_entities_indices]
+        # Currently this will work for mwe of same size
+        batch_size = len(batch)
 
-        words = batch[:, 0].tolist()
-        # print(words)
-        words_vectorized = self.vocabulary.to_input_tensor(words, self.device)[
-            multi_word_entities_indices] # (batch_size, window_size*2)
+        entities_lens = [batch[x][3] for x in range(batch_size)]
+        max_entity_len = max(entities_lens)
 
-        not_pads_idx = words_vectorized.reshape(-1) != 0
+        entities = [batch[x][0].tolist() + (max_entity_len - batch[x][3]) * [self.vocabulary.pad_id] for x in range(batch_size)] # pad max_entity len
+        entities_vectorized = torch.tensor(entities).to(self.device)
+        entities_lens = torch.tensor(entities_lens).to(self.device)
+        outside_words_vectorized = torch.tensor(np.vstack([batch[x][1] for x in range(batch_size)])).to(self.device)
+        negative_examples_vectorized = torch.tensor(np.concatenate([batch[x][2] for x in range(batch_size)])).to(self.device)
         
-        negative_examples = self.generate_negative_examples(
-            self.params['batch_size'], words_vectorized.reshape(-1)[not_pads_idx]) # (batch_size * context_size, number_of_negative_examples)
-
-
-        return mwe_vectorized, mwe_len, words_vectorized, negative_examples
+        return entities_vectorized, entities_lens, outside_words_vectorized, negative_examples_vectorized
 
     def prepare_words_skipgram_minimization(self, batch):
-        batch = np.array(batch, dtype=object)
-        center_words = batch[:, 0].tolist() # batch_size, 
-        outside_words = batch[:, 1].tolist()
-        
-        center_words_vectorized = self.vocabulary.to_input_tensor(center_words, self.device) # (batch_size * sentence_length, 1)
-        outside_words_vectorized = self.vocabulary.to_input_tensor(outside_words, self.device) # (batch_size * sentence_length, 2*window_length)
-        
-        not_pads_idx = outside_words_vectorized.reshape(-1) != 0
+        batch_size = len(batch)
 
-        negative_examples = self.generate_negative_examples(
-                    self.params['batch_size'], outside_words_vectorized.reshape(-1)[not_pads_idx]) # (batch_size * context_size, number_of_negative_examples); Sidenote: batch_size * context_size is the same as batch_size * 2 * window_length, but keeping only the non-pads
-
+        center_words_vectorized = torch.tensor(np.concatenate([batch[x][0] for x in range(batch_size)])).to(self.device) # (batch_size * sentence_length, 1)
+        outside_words_vectorized = torch.tensor(np.vstack([batch[x][1] for x in range(batch_size)])).to(self.device) # (batch_size * sentence_length, 2*window_length)
+        negative_examples_vectorized = torch.tensor(np.vstack([batch[x][2] for x in range(batch_size)])).to(self.device)
         # batch_size * sentence_length -> means that we are taking a number of <batch_size> sentences, where each sentence may have a different number of words
         # (batch_size * sentence_length, 1), (batch_size * sentence_length, 2*window_size), (batch_size * sentence_length  * 2 * window_length, negative_samples)        
-        return center_words_vectorized, outside_words_vectorized, negative_examples
+        return center_words_vectorized, outside_words_vectorized, negative_examples_vectorized
 
     def prepare_joint_training(self, batch):
-        batch = np.array(batch, dtype=object)
-        words = np.array(flatten(batch[:,0].tolist()))
-
-        mwes = np.array(batch[:,1].tolist())
-
-        mwe_params = list(self.prepare_skipgram_minimization(mwes.tolist()))
-        words_params = list(self.prepare_words_skipgram_minimization(words.tolist()))
+        words = [batch[x][0] for x in range(len(batch))]
+        mwes = [batch[x][1] for x in range(len(batch))]
+        
+        mwe_params = self.prepare_skipgram_minimization(mwes)
+        words_params = self.prepare_words_skipgram_minimization(words)
 
         return words_params, mwe_params
 
     def prepare_sentence_skipgram_minimization(self, batch):
-        batch = np.array(batch)
-        multi_word_entities = list(batch[:, 2])
-        mwe_vectorized = self.vocabulary.to_input_tensor(multi_word_entities, self.device)
-        left_part_vectorized  = self.vocabulary.to_input_tensor(list(batch[:, 0]), self.device)
-        right_part_vectorized = self.vocabulary.to_input_tensor(list(batch[:, 3]), self.device)
-        right_context = self.vocabulary.to_input_tensor(list(batch[:, 1]), self.device)
-        rc_not_pad = right_context.reshape(-1) != 0
-        left_context  = self.vocabulary.to_input_tensor(list(batch[:, 4]), self.device)
-        lc_not_pad = left_context.reshape(-1) != 0
+        """ 
+        [left_sentence_vectorized, right_context_vectorized, negative_left_sentence_vectorized, len(left_sentence_vectorized),
+                        entity_vectorized, len(entity),
+                        right_sentence_vectorized, left_context_vectorized, negative_right_sentence_vectorized, len(right_sentence_vectorized)]
+        """
+        batch_size = len(batch)
+        
+        entities_lens = [batch[x][5] for x in range(batch_size)]
+        max_entity_len = max(entities_lens)
 
-        negative_examples_left = self.generate_negative_examples(self.params['batch_size'], left_context.reshape(-1)[lc_not_pad]) # (batch_size * context, number_of_negative_samples)
-        negative_examples_right = self.generate_negative_examples(self.params['batch_size'], right_context.reshape(-1)[rc_not_pad]) # (batch_size * context, number_of_negative_samples)
-        return left_part_vectorized, right_part_vectorized, right_context, left_context, {'lpv_len': torch.tensor([len(x) for x in list(batch[:, 0])]), 
-        'rpv_len': torch.tensor([len(x) for x in list(batch[:, 3])]), 
-        'rc_len' : torch.tensor([len(x) for x in list(batch[:, 1])]), 
-        'lc_len' : torch.tensor([len(x) for x in list(batch[:, 4])])}, negative_examples_left, negative_examples_right
+        entities = [batch[x][4].tolist() + (max_entity_len - batch[x][5]) * [self.vocabulary.pad_id] for x in range(batch_size)] # pad max_entity len
+        entities_vectorized = torch.tensor(entities).to(self.device)
+
+
+        lp_lens = [batch[x][3] for x in range(batch_size)]
+        lp_max_len = max(lp_lens)
+
+        rp_lens = [batch[x][9] for x in range(batch_size)]
+        rp_max_len = max(rp_lens)
+
+        # batch[x][3] and batch[x][9] are the length. Alternative would have been to call len(batch[x][0]) and len(batch[x][6])
+        left_sentence =  [batch[x][0].tolist() + (lp_max_len - batch[x][3]) * [self.vocabulary.pad_id] for x in range(batch_size)] # pad left_sentence
+        right_sentence =  [batch[x][6].tolist() + (rp_max_len - batch[x][9]) * [self.vocabulary.pad_id] for x in range(batch_size)] # pad right_sentence
+
+        left_sentence_vectorized = torch.tensor(np.vstack(left_sentence)).to(self.device)
+        right_sentence_vectorized = torch.tensor(np.vstack(right_sentence)).to(self.device)
+        left_context_vectorized = torch.tensor(np.vstack([batch[x][7] for x in range(batch_size)])).to(self.device)
+        right_context_vectorized = torch.tensor(np.vstack([batch[x][1] for x in range(batch_size)])).to(self.device)
+        negative_for_left_sentence_vectorized = torch.tensor(np.vstack([batch[x][2] for x in range(batch_size)])).to(self.device)
+        negative_for_right_sentence_vectorized = torch.tensor(np.vstack([batch[x][8] for x in range(batch_size)])).to(self.device)
+
+        # (batch_size, max_left_length), (batch_size, max_right_length), (batch_size, window_size), (batch_size, window_size), dictionary with lengths, (batch_size * context_size, number_of_negative_examples), (batch_size * context_size, number_of_negative_examples)
+        return left_sentence_vectorized, right_sentence_vectorized, right_context_vectorized, left_context_vectorized, {'lpv_len': torch.tensor(lp_lens), 
+                    'rpv_len': torch.tensor(rp_lens)}, negative_for_right_sentence_vectorized, negative_for_left_sentence_vectorized,
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
