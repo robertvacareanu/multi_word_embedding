@@ -88,8 +88,7 @@ class MWETrain(object):
 
         negative_sampling_distribution = torch.tensor(
             self.vocabulary.counts).float().to(self.device)
-        negative_sampling_distribution = negative_sampling_distribution.pow(
-            3 / 4)
+        negative_sampling_distribution = negative_sampling_distribution.pow(3/4)
         nsd = negative_sampling_distribution.cpu().numpy()
         self.negative_sampling_distribution = negative_sampling_distribution.div(
             negative_sampling_distribution.sum(dim=0))
@@ -326,12 +325,12 @@ class MWETrain(object):
         entities_lens = torch.tensor(entities_lens).to(self.device)
         outside_words_vectorized = torch.tensor(np.vstack([batch[x][1] for x in range(batch_size)])).to(self.device)
         negative_examples_vectorized = torch.tensor(np.concatenate([batch[x][2] for x in range(batch_size)])).to(self.device)
-        
+
         return entities_vectorized, entities_lens, outside_words_vectorized, negative_examples_vectorized
 
     def prepare_words_skipgram_minimization(self, batch):
         batch_size = len(batch)
-
+        
         center_words_vectorized = torch.tensor(np.concatenate([batch[x][0] for x in range(batch_size)])).to(self.device) # (batch_size * sentence_length, 1)
         outside_words_vectorized = torch.tensor(np.vstack([batch[x][1] for x in range(batch_size)])).to(self.device) # (batch_size * sentence_length, 2*window_length)
         negative_examples_vectorized = torch.tensor(np.vstack([batch[x][2] for x in range(batch_size)])).to(self.device)
@@ -342,7 +341,7 @@ class MWETrain(object):
     def prepare_joint_training(self, batch):
         words = [batch[x][0] for x in range(len(batch))]
         mwes = [batch[x][1] for x in range(len(batch))]
-        
+
         mwe_params = self.prepare_skipgram_minimization(mwes)
         words_params = self.prepare_words_skipgram_minimization(words)
 
@@ -355,7 +354,7 @@ class MWETrain(object):
                         right_sentence_vectorized, left_context_vectorized, negative_right_sentence_vectorized, len(right_sentence_vectorized)]
         """
         batch_size = len(batch)
-        
+
         entities_lens = [batch[x][5] for x in range(batch_size)]
         max_entity_len = max(entities_lens)
 

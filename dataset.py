@@ -106,7 +106,7 @@ class WordWiseSGMweDataset(SkipGramMinimizationDataset):
 
         entity_vectorized = self.vocabulary.to_input_array(entity)
         # Add the necessary pad. Every context should be of length 2*window_size
-            context = lc + rc
+        context = lc + rc
         context_vectorized = self.vocabulary.to_input_array(context + (2*self.window_size - len(context)) * [self.vocabulary.pad_token])
         negative_examples_vectorized = self.generate_negative_examples(self.number_of_negative_examples, context_vectorized[:len(context)]) # skip pads
 
@@ -126,7 +126,7 @@ class SentenceWiseSGMweDataset(SkipGramMinimizationDataset):
     def __init__(self, params):#filepath, window_size=5, full_sentence=False):
         super().__init__(params['train_file'], params['negative_examples_distribution'], params['vocabulary'], params['window_size'])
         self.number_of_negative_examples = params['number_of_negative_examples']
-        
+
     def __getitem__(self, index: int):
         words = super().__getitem__(index)
         entity = list(filter(lambda x: '_' in x, words))[0]  # Should always exist. If it does not, then the method make_corpus from utils.py was not used
@@ -221,12 +221,12 @@ class WordWiseSGDataset(SkipGramMinimizationDataset):
         non_pads_idx = context_words_vectorized != 0
 
         negative_examples_vectorized = self.generate_negative_examples(self.number_of_negative_examples, context_words_vectorized[non_pads_idx].reshape(-1)).reshape(-1, self.number_of_negative_examples)
- 
+
         # sentence_length is the length of the sentence after transforming the mwe into multiple words
         # (sentence_length), (sentence_length, 2*window_size), (context_size, number_of_negative_examples) 
         # context_size = sentence_length * 2 * window_size - (window_size * (window_size+1)). In other words, it is the number of non_pads in the context_words_vectorized
         return [center_words_vectorized, context_words_vectorized, negative_examples_vectorized]
-
+ 
 
 class JointTrainingSGMinimizationDataset(data.Dataset):
     """
