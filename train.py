@@ -6,6 +6,7 @@ import numpy as np
 import time
 import torch
 import torch.optim
+import tqdm
 import os
 from torch.utils import data
 from datetime import datetime
@@ -168,34 +169,36 @@ class MWETrain(object):
         for epoch in range(self.num_epochs):
             running_epoch_loss = []
             if epochs_since_last_improvement < self.params['early_stopping']:
-                for batch in self.generator:
-                    train_iter += 1
+                with tqdm.tqdm(total=len(self.generator)) as progress_bar:
+                    for batch in self.generator:
+                        progress_bar.update(1)
+                        train_iter += 1
 
-                    # Zero the gradients
-                    self.optimizer.zero_grad()
+                        # Zero the gradients
+                        self.optimizer.zero_grad()
 
-                    torch.set_printoptions(threshold=5000)
+                        torch.set_printoptions(threshold=5000)
 
-                    # Get the loss
-                    loss = self.task_model.forward(
-                        *self.minimization_types[self.params['train_objective']](batch)) # Prepare each batch based on what type of training is used
-                    loss_item = loss.item()
-                    running_epoch_loss.append(loss_item)
-                    if self.debug:
-                        print(loss_item)
-                    # running_batch_loss.append(loss_item)
+                        # Get the loss
+                        loss = self.task_model.forward(
+                            *self.minimization_types[self.params['train_objective']](batch)) # Prepare each batch based on what type of training is used
+                        loss_item = loss.item()
+                        running_epoch_loss.append(loss_item)
+                        if self.debug:
+                            print(loss_item)
+                        # running_batch_loss.append(loss_item)
 
-                    # Get gradients
-                    loss.backward()
+                        # Get gradients
+                        loss.backward()
 
-                    # Grad clipping, same as in the paper we are comparing with
-                    torch.nn.utils.clip_grad_norm_(
-                        self.task_model.parameters(), 5)
+                        # Grad clipping, same as in the paper we are comparing with
+                        torch.nn.utils.clip_grad_norm_(
+                            self.task_model.parameters(), 5)
 
-                    # Take gradient step
-                    self.optimizer.step()
+                        # Take gradient step
+                        self.optimizer.step()
 
-                    # running_epoch_loss.append(loss_item)
+                        # running_epoch_loss.append(loss_item)
             else:
                 print(
                     f"No improvements for {epochs_since_last_improvement}. Training stopped. Report saved at: {self.params['save_path']}_report")
