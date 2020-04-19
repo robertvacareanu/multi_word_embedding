@@ -28,17 +28,22 @@ class LSTMMweModel(nn.Module):
     def forward(self, batch_mwe: torch.Tensor, mwe_lengths: torch.Tensor):
         """
 
-        :param batch_mwe: (batch, max_entity_size, embedding_dim) - tensor containing the batch and the embedding of
+        :param batch_mwe: (batch_size, max_entity_size, embedding_dim) - tensor containing the batch and the embedding of
         each word for a multi-word entity
         :param mwe_lengths: A list containing the length (number of words) of each multi-word entity in the batch
-        :return: A tensor (batch, embedding_dim) representing the embedding of each multi-word entity (mwe),
+        :return: A tensor (batch_size, embedding_dim) representing the embedding of each multi-word entity (mwe),
         corresponding to the last_hidden state for each mwe (if bidirectional = True return (batch, 2*embedding_dim)
         """
         x = nn.utils.rnn.pack_padded_sequence(batch_mwe, mwe_lengths, batch_first=True)
         _, (last_hidden, _) = self.lstm(x)
 
-        # return torch.cat([last_hidden[0, :, :], last_hidden[1, :, :]], dim=1) #for bidirectional
-        return last_hidden.squeeze(dim=0)
+        # (num_layers, 2 if bidirectional else 1, batch_size, hidden_size)
+        last_hidden = last_hidden.view(self.lstm.num_layers, 2 if self.lstm.bidirectional else 1, batch_mwe.shape[0], self.lstm.hidden_size)
+        if self.lstm.bidirectional:
+            last_hidden = torch.cat([last_hidden[-1, 0, :, :], last_hidden[-1, 1, :, :]], dim=1)
+        else:
+            last_hidden = last_hidden[-1,0,:,:]
+        return last_hidden
 
 
 class LSTMMultiply(nn.Module):
