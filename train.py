@@ -14,7 +14,7 @@ from datetime import datetime
 from dataset import WordWiseSGMweDataset, SkipGramMinimizationDataset, JointTrainingSGMinimizationDataset, SentenceWiseSGMweDataset, DirectMinimizationDataset
 from embeddings import SkipGramEmbeddings, RandomInitializedEmbeddings
 from evaluate import Evaluation, Evaluation2
-from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel
+from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel, AttentionWeightedModel
 from task_model import MWESkipGramTaskModel, MWEMeanSquareErrorTaskModel, MWESentenceSkipGramTaskModel, MWEJointTraining
 from utils import init_random, format_number, read_wikipedia_corpus, flatten
 from vocabulary import AbstractVocabulary, make_word_vocab
@@ -43,8 +43,8 @@ class MWETrain(object):
         # dictionary containing the mappings from string to mwe function.
         mwe_function_map = {'LSTMMultiply': LSTMMultiply, 'LSTMMweModel': LSTMMweModel,
                             'FullAdd': FullAdd, 'MultiplyMean': MultiplyMean, 'MultiplyAdd': MultiplyAdd,
-                            'CNNMweModel': CNNMweModel, 'LSTMMweModelPool': LSTMMweModelPool, 'GRUMweModel': GRUMweModel, 'Max': Max,
-                            'Average': Average, 'RandomLSTM': RandomLSTM}
+                            'CNNMweModel': CNNMweModel, 'LSTMMweModelPool': LSTMMweModelPool, 'GRUMweModel': GRUMweModel, 'AttentionWeightedModel': AttentionWeightedModel,
+                            'Max': Max, 'Average': Average, 'RandomLSTM': RandomLSTM}
 
         # Different training regimes may need different data format (or more data)
         # This maps from a training regimes to its corresponding dataset
@@ -254,6 +254,7 @@ class MWETrain(object):
                 for param in self.task_model.mwe_f.parameters():
                     param.requires_grad = True
 
+                # Keeping the better model
                 if performance is None:
                     performance = score
                     print(f"Save new best: {score}")

@@ -3,6 +3,7 @@ from typing import List, Any
 import torch
 import torch.nn as nn
 
+
 """
 File holding classes that will transform the multi-word entity representation (and, additionally, any other information 
 -- context words, etc) into a single embedding
@@ -226,4 +227,18 @@ class GRUMweModel(nn.Module):
             return torch.cat([last_hidden[0, :, :], last_hidden[1, :, :]], dim=1) #for bidirectional
         else:
             return last_hidden.squeeze(dim=0)
+
+
+class AttentionWeightedModel(nn.Module):
+    """
+    Generating an embedding for a multi-word entity by applying a GRU over the embeddings of each constituent word.
+    """
+
+    def __init__(self, params):
+        super().__init__()
+        
+
+    def forward(self, batch_mwe: torch.Tensor, mwe_lengths: torch.Tensor):
+        pass
+
 
