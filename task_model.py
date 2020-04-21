@@ -245,3 +245,38 @@ class MWEJointTraining(nn.Module):
         loss = loss_words + loss_mwes
 
         return loss.mean()
+
+
+class AutoEncoderPreTraining(nn.Module):
+    """
+    Train an auto encoder. Used as a pretraining procedure
+    :param embedding_function generate embeddings of the input words
+    :param mwe_f the function to apply this pretraining to
+    """
+    def __init__(self, embedding_function, mwe_f):
+        super().__init__()
+        # nn.Embedding.from_pretrained()
+        self.embedding_function = embedding_function
+        self.encoder = mwe_f
+        self.decoder = nn.Linear(in_features=self.embedding_function.embedding_dim, out_features=self.embedding_function.embedding_dim, bias=True)
+        self.loss = nn.MSELoss()
+    def forward(self, input):
+        """
+        :param input (batch_size, max_seq_length)
+        """
+        # (batch_size * max_seq_length)
+        non_pads = input.reshape(-1) != 0
+
+        # (batch_size, max_seq_length, embedding_dim)
+        input_vectorized = self.embedding_function(input)  
+
+        # (batch_size, max_seq_length, embedding_dim) -- added noise with mean 0.1. The average std for the embeddings is 0.5
+        encoded_input = self.encoder(input_vectorized + torch.rand(input_vectorized.shape) / 10)
+
+        # (batch_size * max_seq_length, embedding_dim)
+        decoded_input = self.decoder(input_vectorized.reshape(-1, self.embedding_function.embedding_dim)[non_pads])
+
+        loss = self.loss(input_vectorized.reshape(-1, self.embedding_function.embedding_dim)[non_pads], decoded_input)
+    
+        return loss
+

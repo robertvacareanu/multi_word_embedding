@@ -15,7 +15,8 @@ from dataset import WordWiseSGMweDataset, SkipGramMinimizationDataset, JointTrai
 from embeddings import SkipGramEmbeddings, RandomInitializedEmbeddings
 from evaluate import Evaluation, Evaluation2
 from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel, AttentionWeightedModel
-from task_model import MWESkipGramTaskModel, MWEMeanSquareErrorTaskModel, MWESentenceSkipGramTaskModel, MWEJointTraining
+from task_model import MWESkipGramTaskModel, MWEMeanSquareErrorTaskModel, MWESentenceSkipGramTaskModel, MWEJointTraining, AutoEncoderPreTraining
+from task_manager import TaskManager
 from utils import init_random, format_number, read_wikipedia_corpus, flatten
 from vocabulary import AbstractVocabulary, make_word_vocab
 from baseline import Max, Average, RandomLSTM
@@ -153,6 +154,17 @@ class MWETrain(object):
         self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
         self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=10, shuffle=False,
                                                      collate_fn=lambda nparr: nparr)
+        if 'heldout_data' in params:
+            heldout_params = {}
+            for key in dataset_params[params['train_objective']]:
+                heldout_params[key] = dataset_params[params['train_objective']][key]
+
+            heldout_params['train_data']=params['heldout_data']
+
+            self.dev_dataset = dataset_function_map[params['train_objective']](heldout_params)
+            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=10, shuffle=False,
+                                                     collate_fn=lambda nparr: nparr)
+
         print(len(self.generator))
 
         self.number_of_iter = 1000
@@ -160,45 +172,18 @@ class MWETrain(object):
 
 
     def train(self):
+        tm = TaskManager()
         begin_time = time.time()
         running_loss = []
         train_iter = 0
         f = open('output', 'w+')
         performance = None
         epochs_since_last_improvement = 0
+
         for epoch in range(self.num_epochs):
             running_epoch_loss = []
             if epochs_since_last_improvement < self.params['early_stopping']:
-                with tqdm.tqdm(total=len(self.generator)) as progress_bar:
-                    for batch in self.generator:
-                        progress_bar.update(1)
-                        train_iter += 1
-
-                        # Zero the gradients
-                        self.optimizer.zero_grad()
-
-                        torch.set_printoptions(threshold=5000)
-
-                        # Get the loss
-                        loss = self.task_model.forward(
-                            *self.minimization_types[self.params['train_objective']](batch)) # Prepare each batch based on what type of training is used
-                        loss_item = loss.item()
-                        running_epoch_loss.append(loss_item)
-                        if self.debug:
-                            print(loss_item)
-                        # running_batch_loss.append(loss_item)
-
-                        # Get gradients
-                        loss.backward()
-
-                        # Grad clipping, same as in the paper we are comparing with
-                        torch.nn.utils.clip_grad_norm_(
-                            self.task_model.parameters(), 5)
-
-                        # Take gradient step
-                        self.optimizer.step()
-
-                        # running_epoch_loss.append(loss_item)
+                running_epoch_loss=tm.step(task_model=self.task_model, generator=self.generator, optimizer=self.optimizer, batch_construction=self.minimization_types[self.params['train_objective']])
             else:
                 print(
                     f"No improvements for {epochs_since_last_improvement}. Training stopped. Report saved at: {self.params['save_path']}_report")
@@ -224,35 +209,19 @@ class MWETrain(object):
                     param.requires_grad = False
 
                 self.task_model.eval()
-                scores = []
-                models = [
-                    LogisticRegression(multi_class="multinomial", penalty='l2', C=0.5, solver="sag", n_jobs=20),
-                    # LogisticRegression(multi_class="multinomial", penalty='l2', C=1,   solver="sag", n_jobs=20),
-                    # LogisticRegression(multi_class="multinomial", penalty='l2', C=2,   solver="sag", n_jobs=20),
-                    # LogisticRegression(multi_class="multinomial", penalty='l2', C=5,   solver="sag", n_jobs=20),
-                    # LogisticRegression(multi_class="multinomial", penalty='l2', C=10,  solver="sag", n_jobs=20),
-                    # LinearSVC(penalty='l2', dual=False, C=0.5,),
-                    # LinearSVC(penalty='l2', dual=False, C=1,  ),
-                    # LinearSVC(penalty='l2', dual=False, C=2,  ),
-                    # LinearSVC(penalty='l2', dual=False, C=5,  ),
-                    # LinearSVC(penalty='l2', dual=False, C=10, )
-                    # 
-                    # LogisticRegression(multi_class="multinomial", solver="sag", n_jobs=20)
-                ]
-                for model in models:
-                    evaluation = Evaluation2(self.params['evaluation']['evaluation_train_file'],
-                                            self.params['evaluation']['evaluation_dev_file'], 
-                                            self.task_model.mwe_f, self.sg_embeddings, self.params['vocabulary_path'], device=self.device,
-                                            te=model)
-                    score = float(evaluation.evaluate()[-1])
-                    scores.append(score)
-                # print(score)
-                # exit()
-                score = np.max(scores)
-                print(f'Max was with: {np.argmax(scores)}')
+                if 'heldout_data' in self.params:
+                    score = -tm.evaluateOnHeldoutDataset(params=self.params, task_model=self.task_model, generator=self.dev_generator,
+                                                        batch_construction=self.minimization_types[self.params['train_objective']])
+                else:
+                    score, model_number = tm.evaluateOnTratz(self.params, self.task_model.mwe_f, self.sg_embeddings, self.device)
+                    print(f'Max was with: {model_number}')
+
                 # Unfreeze the network after evaluation
                 for param in self.task_model.mwe_f.parameters():
                     param.requires_grad = True
+                
+                # Zero whatever gradients might have been computed
+                self.optimizer.zero_grad()
 
                 # Keeping the better model
                 if performance is None:
@@ -420,6 +389,7 @@ if __name__ == '__main__':
     parser.add_argument("--random-seed", type=int, required=False,
                         help="Random seed to use. Default: 1")
     parser.add_argument("--pretrained-model", type=str, required=False, default=None, help="Path to the pretrained model. Used to fine tune")
+    parser.add_argument("--heldout-data", type=str, required=False, default=None, help="Path to the heldout data. Used for early stopping")
 
     result = parser.parse_args()
     config = json.load(open(result.config_file))
@@ -429,7 +399,7 @@ if __name__ == '__main__':
     print(result)
     print(config)
     # Override based on cli arguments
-    for update_param in ['learning_rate', 'batch_size', 'num_epochs', 'number_of_negative_examples', 'save_path', 'which_cuda', 'weight_decay', 'early_stopping', 'random_seed', 'pretrained_model']:
+    for update_param in ['learning_rate', 'batch_size', 'num_epochs', 'number_of_negative_examples', 'save_path', 'which_cuda', 'weight_decay', 'early_stopping', 'random_seed', 'pretrained_model', 'heldout_data']:
         if result[update_param] is not None:
             config[update_param] = result[update_param]
 
