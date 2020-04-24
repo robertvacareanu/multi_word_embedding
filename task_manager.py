@@ -73,7 +73,7 @@ class TaskManager():
 
         return running_epoch_loss
             
-    def evaluateOnTratz(self, params, mwe_f, sg_embeddings, device):
+    def evaluateOnTratz(self, params, mwe_f, sg_embeddings, embedding_device, device):
         scores = []
 
         models = [
@@ -93,8 +93,7 @@ class TaskManager():
         for model in models:
             evaluation = Evaluation2(params['evaluation']['evaluation_train_file'],
                             params['evaluation']['evaluation_dev_file'], 
-                            mwe_f, sg_embeddings, params['vocabulary_path'], device=device,
-                            te=model)
+                            mwe_f, sg_embeddings, params['vocabulary_path'], embedding_device=embedding_device, device=device, te=model)
             score = float(evaluation.evaluate()[-1])
             scores.append(score)
         
@@ -106,5 +105,5 @@ class TaskManager():
             loss = task_model.forward(*batch_construction(batch)) # Prepare each batch based on what type of training is used
             loss_item = loss.item()
             running_epoch_loss.append(loss_item)
-        
+            
         return np.mean(running_epoch_loss)

@@ -68,7 +68,7 @@ def make_corpus(file_path, save_path, mwes_path, number_of_lines=10000):
     (https://github.com/vered1986/NC_embeddings/blob/8dec4e2f7918ab7606abf61b9d90e4f2786a9652/source/training/distributional/preprocessing/extract_ngrams_and_windows.py)
     :param file_path: path to the corpus file
     :param save_path: path to where to save the generated corpus file
-    :param mwes_path: path to the file containing the mwes
+    :param mwes_path: path to the file containing the mwes. We keep only the sentences with mwes that are in the file at mwes_path
     """
     added_lines = 0
     mwes = [x.replace('\t', '_').strip() for x in open(mwes_path, 'r')]

@@ -132,6 +132,12 @@ class MWETrain(object):
                                 params['save_embeddings'])
                     exit()
 
+        if self.sg_embeddings.context_embeddings.weight.shape[0] > 10000000:
+            print("HERE1")
+            self.embedding_device = torch.device('cpu')
+        else:
+            print("HERE2")
+            self.embedding_device = self.device
 
         print("Embeddings - done")
         # init_random(1)
@@ -140,7 +146,10 @@ class MWETrain(object):
         if params['pretrained_model'] is not None:
             self.mwe_f.load_state_dict(torch.load(f"{params['pretrained_model']}.pt"))
         self.task_model = self.task_model_types[params['train_objective']](
-            self.sg_embeddings, self.mwe_f).to(self.device)
+            self.sg_embeddings, self.mwe_f, self.embedding_device, self.device)#.to(self.device)
+        self.task_model.mwe_f.to(self.device)
+        self.task_model.embedding_function.to(self.embedding_device) # embeddings can get too big for GPU
+
         self.task_model.train()
 
         # self.optimizer = torch.optim.Adam(
@@ -152,7 +161,7 @@ class MWETrain(object):
             self.optimizer, factor=0.5, patience=3, min_lr=0.0005, cooldown=0, )
         
         self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
-        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=10, shuffle=False,
+        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=10, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
         if 'heldout_data' in params:
             heldout_params = {}
@@ -162,7 +171,7 @@ class MWETrain(object):
             heldout_params['train_data']=params['heldout_data']
 
             self.dev_dataset = dataset_function_map[params['train_objective']](heldout_params)
-            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=10, shuffle=False,
+            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=10, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
 
         print(len(self.generator))
@@ -184,7 +193,7 @@ class MWETrain(object):
             running_epoch_loss = []
             if epochs_since_last_improvement < self.params['early_stopping']:
                 running_epoch_loss=tm.step(task_model=self.task_model, generator=self.generator, optimizer=self.optimizer, batch_construction=self.minimization_types[self.params['train_objective']])
-            else:
+            else: # Stop, because no improvement for more than threshold
                 print(
                     f"No improvements for {epochs_since_last_improvement}. Training stopped. Report saved at: {self.params['save_path']}_report")
                 if not os.path.exists(f'{self.params["save_path"]}_report'):
@@ -200,8 +209,10 @@ class MWETrain(object):
 
                 return
 
+            # Evaluate. Separate branch for clarity
             if epochs_since_last_improvement < self.params['early_stopping']:
                 # Prepare for evaluation
+                
                 # Zero the gradients
                 self.optimizer.zero_grad()
                 # Freeze the network for evaluation
@@ -213,8 +224,9 @@ class MWETrain(object):
                     score = -tm.evaluateOnHeldoutDataset(params=self.params, task_model=self.task_model, generator=self.dev_generator,
                                                         batch_construction=self.minimization_types[self.params['train_objective']])
                 else:
-                    score, model_number = tm.evaluateOnTratz(self.params, self.task_model.mwe_f, self.sg_embeddings, self.device)
+                    score, model_number = tm.evaluateOnTratz(self.params, self.task_model.mwe_f, self.sg_embeddings, self.embedding_device, self.device)
                     print(f'Max was with: {model_number}')
+
 
                 # Unfreeze the network after evaluation
                 for param in self.task_model.mwe_f.parameters():

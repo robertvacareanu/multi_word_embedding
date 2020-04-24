@@ -45,7 +45,7 @@ class TratzEvaluation(nn.Module):
 
 class Evaluation2(object):
 
-    def __init__(self, train_path, dev_path, model, embedding_function, vocabulary_path, batch_size=64, epochs=10,
+    def __init__(self, train_path, dev_path, model, embedding_function, vocabulary_path, batch_size=64, epochs=10, embedding_device = torch.device('cpu'),
                  device=torch.device('cpu'), te=LogisticRegression(multi_class="multinomial", solver="sag", n_jobs=20)):
         self.evaluation_model = model
         self.embedding_function = embedding_function
@@ -53,6 +53,7 @@ class Evaluation2(object):
         self.batch_size = batch_size
         self.epochs = epochs
         self.device = device
+        self.embedding_device = embedding_device
         # self.cpu_device = torch.device('cpu')
 
         self.te = te
@@ -67,13 +68,13 @@ class Evaluation2(object):
         dev_x = [self.dev_dataset[x][0].split(" ") for x in range(len(self.dev_dataset))]
         dev_y = [self.dev_dataset[x][1] for x in range(len(self.dev_dataset))]
 
-        train_x = self.vocabulary.to_input_tensor(train_x, self.device)
-        train_y = self.label_vocab.to_input_tensor(train_y, self.device).cpu().detach().numpy()
-        dev_x = self.vocabulary.to_input_tensor(dev_x, self.device)
-        dev_y = self.label_vocab.to_input_tensor(dev_y, self.device).cpu().detach().numpy()
-
-        train_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(train_x), [2]*train_x.shape[0]).cpu().detach().numpy()
-        dev_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(dev_x), [2]*dev_x.shape[0]).cpu().detach().numpy()
+        train_x = self.vocabulary.to_input_tensor(train_x, self.embedding_device)
+        train_y = self.label_vocab.to_input_tensor(train_y, self.embedding_device).cpu().detach().numpy()
+        dev_x = self.vocabulary.to_input_tensor(dev_x, self.embedding_device)
+        dev_y = self.label_vocab.to_input_tensor(dev_y, self.embedding_device).cpu().detach().numpy()
+        xyz = self.embedding_function.center_embeddings(train_x)
+        train_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(train_x).to(self.device), [2]*train_x.shape[0]).cpu().detach().numpy()
+        dev_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(dev_x).to(self.device), [2]*dev_x.shape[0]).cpu().detach().numpy()
 
         self.te.fit(train_x_mwe, train_y)
         prediction = self.te.predict(dev_x_mwe)
