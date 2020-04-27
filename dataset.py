@@ -3,12 +3,63 @@ import torch
 import pandas as pd
 import numpy as np
 import itertools
-
+from itertools import groupby
 
 """
 File containing the necessary logic for loading the data
 """
 
+"""
+For example, assume we have the following vocabulary:word: count (probability)
+word1: 1   (1/24)
+word2: 1   (1/24)
+word3: 1   (1/24)
+word4: 2   (2/24)
+word5: 2   (2/24)
+word6: 6   (6/24)
+word7: 11 (11/24)
+ So we have: (probability of sampling a word in this bin)
+3 words with count 1 (3/24)
+2 words with count 2 (4/24)
+1 word with count 6   (6/24)
+1 word with count 11 (11/24)
+
+Classically, we are doing a multinomial sampling over all the words. 
+Here we first sample (multinomial) the bin (e.g: count 1 with probability 3/24), then sample (uniform) the word (e.g. w1 with probability 1/3).
+"""
+class Sampler:
+    def __init__(self, cnts):
+        super().__init__()
+        counts = np.array(cnts)
+        counts = counts ** (3/4)
+        counts /= counts.sum()
+        u, c = np.unique(counts, return_counts=True)
+        self.counts_groupped = u * c
+        self.uniform_distribution_values = {i:np.where(counts == k)[0] for i,k in enumerate(u)}
+        self.distribution_values = np.arange(len(self.counts_groupped))
+    def sample(self, n: int):
+        bin_samples = np.random.choice(self.distribution_values, p=self.counts_groupped, size=n)
+        bin_samples = np.sort(bin_samples)
+        bin_groupped = {key:len(list(group)) for key, group in groupby(bin_samples)}
+        return np.concatenate([np.random.choice(self.uniform_distribution_values[key], bin_groupped[key]) for key in bin_groupped])
+
+    @staticmethod
+    def test_it():
+        counts = [0,0,1,2,3,1,2,3,1,2,3,1,1,1,1,1,1,2,2,5,6,7,8,9,10,11,12,13,14,15,16,1,1,1,1,1,1]
+        sampler = Sampler(counts)
+        counts = np.array(counts)
+        counts = counts ** (3/4)
+        counts /= counts.sum()
+        samples1 = sampler.sample(10000000)
+        samples2 = np.random.choice(len(counts), p=counts, size=10000000)
+        _, samples1 = np.unique(samples1, return_counts=True)
+        _, samples2 = np.unique(samples2, return_counts=True)
+        print(counts) # probability of each
+        print(sampler.counts_groupped)
+        print(samples1)
+        print(samples2)
+        print(samples1/10000000)
+        print(samples2/10000000)
 
 class SkipGramMinimizationDataset(data.Dataset):
 
