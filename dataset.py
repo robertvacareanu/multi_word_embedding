@@ -10,6 +10,9 @@ File containing the necessary logic for loading the data
 """
 
 """
+Class for faster multinomial sampling. This sampler provides improvement performance over numpy when you are both doing samples repeteadly and you have the distribution zipfian
+
+
 For example, assume we have the following vocabulary:word: count (probability)
 word1: 1   (1/24)
 word2: 1   (1/24)
