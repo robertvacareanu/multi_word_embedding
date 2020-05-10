@@ -132,7 +132,7 @@ class MWETrain(object):
                                 params['save_embeddings'])
                     exit()
 
-        if self.sg_embeddings.context_embeddings.weight.shape[0] > 1000000:
+        if self.sg_embeddings.context_embeddings.weight.shape[0] > 2500000:
             print("HERE1")
             self.embedding_device = torch.device('cpu')
         else:
@@ -144,7 +144,7 @@ class MWETrain(object):
         self.mwe_f = mwe_function_map[params['model']['name']](
             params['model']['attributes']).to(self.device)
         if params['pretrained_model'] is not None:
-            self.mwe_f.load_state_dict(torch.load(f"{params['pretrained_model']}.pt"))
+            self.mwe_f.load_state_dict(torch.load(f"{params['pretrained_model']}.pt", map_location=self.device))
         self.task_model = self.task_model_types[params['train_objective']](
             self.sg_embeddings, self.mwe_f, self.embedding_device, self.device)#.to(self.device)
         self.task_model.mwe_f.to(self.device)
@@ -161,7 +161,7 @@ class MWETrain(object):
             self.optimizer, factor=0.5, patience=3, min_lr=0.0005, cooldown=0, )
         
         self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
-        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=10, shuffle=True,
+        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=8, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
         if 'heldout_data' in params:
             heldout_params = {}
@@ -171,7 +171,7 @@ class MWETrain(object):
             heldout_params['train_file']=params['heldout_data']
 
             self.dev_dataset = dataset_function_map[params['train_objective']](heldout_params)
-            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=10, shuffle=True,
+            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=4, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
 
         print(len(self.generator))
@@ -208,7 +208,7 @@ class MWETrain(object):
                         f"{performance}\t{format_number(time.time() - begin_time)}\t{self.params['evaluation']['evaluation_dev_file']}\t{self.params['random_seed']}\t{datetime.now()}\n")
 
                 return
-
+            torch.save(self.task_model.mwe_f.state_dict(), f"{self.save_path}_{epoch}.pt")
             # Evaluate. Separate branch for clarity
             if epochs_since_last_improvement < self.params['early_stopping']:
                 # Prepare for evaluation
@@ -260,6 +260,13 @@ class MWETrain(object):
                 self.task_model.train()
 
         f.close()
+
+    def eval(self):
+        tm = TaskManager()
+        self.task_model.eval()
+        score, model_number = tm.evaluateOnTratz(self.params, self.task_model.mwe_f, self.sg_embeddings, self.embedding_device, self.device)
+        print(f"Score: {score} - {model_number}")
+        return 0
 
     def save(self, path):
         torch.save(self.task_model.mwe_f.state_dict(), f"{path}")
@@ -402,6 +409,7 @@ if __name__ == '__main__':
                         help="Random seed to use. Default: 1")
     parser.add_argument("--pretrained-model", type=str, required=False, default=None, help="Path to the pretrained model. Used to fine tune")
     parser.add_argument("--heldout-data", type=str, required=False, default=None, help="Path to the heldout data. Used for early stopping")
+    parser.add_argument("--only-eval", action='store_true', help="Can be used to only evaluate a pretrained model")
 
     result = parser.parse_args()
     config = json.load(open(result.config_file))
@@ -429,4 +437,9 @@ if __name__ == '__main__':
     if result['pretrained_model'] is not None:
         print(f"Loading pretrained model from {result['pretrained_model']}")
     train_obj = MWETrain(config)
-    train_obj.train()
+    if result['only_eval']:
+        print("Only evaluate the pretrained model")
+        train_obj.eval()
+    else:
+        print("Start training")
+        train_obj.train()

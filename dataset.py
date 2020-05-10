@@ -3,6 +3,10 @@ import torch
 import pandas as pd
 import numpy as np
 import itertools
+import tqdm
+import os
+import pickle
+import queue
 from itertools import groupby
 
 """
@@ -24,7 +28,7 @@ word7: 11 (11/24)
  So we have: (probability of sampling a word in this bin)
 3 words with count 1 (3/24)
 2 words with count 2 (4/24)
-1 word with count 6   (6/24)
+1 word with count 6  (6/24)
 1 word with count 11 (11/24)
 
 Classically, we are doing a multinomial sampling over all the words. 
@@ -64,6 +68,7 @@ class Sampler:
         print(samples1/10000000)
         print(samples2/10000000)
 
+
 class SkipGramMinimizationDataset(data.Dataset):
 
     def __init__(self, filepath, negative_examples_distribution, vocabulary, window_size=5):
@@ -77,62 +82,53 @@ class SkipGramMinimizationDataset(data.Dataset):
             count = sum(1 for _ in f)
             self.length = count
         self.dataset = pd.read_csv(self.path, sep='\n', header=None, quoting=3).values
-        # self.cache_size = 20
-        # self.cache = {}
+        self.negative_examples_cache = queue.Queue()
+        self.sampler = Sampler(self.vocabulary.counts)
+        counts = np.array(vocabulary.counts)
+        counts = counts ** (3/4)
+        counts /= counts.sum()
+        self.p = counts
 
     def __len__(self):
         return self.length
+
+    def populate_cache(self, number_of_negative_examples):
+        samples = np.random.choice(len(self.p), p=self.p, size=1000000 * self.window_size * 2 * number_of_negative_examples).reshape(-1, self.window_size * 2, number_of_negative_examples)
+        for x in list(samples):
+            self.negative_examples_cache.put(x)
 
     def __getitem__(self, index):
         sentence = self.dataset[index][0]
         words = sentence.split(' ')
         return words
 
-    def generate_negative_examples(self, number_of_negative_examples, words_to_avoid):
-
-        ## Commented below is the code for computing more negative examples and then caching them. It doesn't improve performance
-        # tuple_words_to_avoid = tuple(words_to_avoid)
-        # if tuple_words_to_avoid in self.cache and len(self.cache[tuple_words_to_avoid]) > 0:
-        #     negative_examples = self.cache[tuple_words_to_avoid].pop(0)
-        #     return negative_examples
-        # else:
-        #     negative_examples = np.random.choice(self.negative_examples_distribution_values, 
-        #                         size=self.cache_size * number_of_negative_examples * words_to_avoid.shape[0], 
-        #                         replace=True,
-        #                         p=self.negative_examples_distribution).reshape(self.cache_size, -1, number_of_negative_examples)
-        #     words_to_avoid = np.expand_dims(words_to_avoid, axis=1)
-        #     words_to_avoid = np.expand_dims(words_to_avoid, axis=0)
-
-        #     # Compare negative samples with the words that are indeed in the context. 
-        #     # negative_examples: (cache_size, batch_size, number_of_negative_examples)
-        #     # words_to_avoid: (1,batch_size,1)
-        #     indices_to_change = (negative_examples == words_to_avoid)
-
-        #     # indices_to_change will have the same shape as negative_examples: (cache_size, batch_size, number_of_negative_examples)
-        #     # Replace such that no words_to_avoid appear in negative_examples (when is not allowed to, i.e. the context words itself shouldn't appear in his negative examples list)
-        #     while np.any(indices_to_change):
-        #         replacement = np.random.choice(self.negative_examples_distribution_values, np.nonzero(indices_to_change)[0].shape[0], replace=True, p=self.negative_examples_distribution)
-        #         negative_examples[indices_to_change] = replacement
-        #         indices_to_change = (negative_examples == words_to_avoid)
-
-        #     self.cache[tuple_words_to_avoid] = list(negative_examples)
-        #     negative_examples = self.cache[tuple_words_to_avoid].pop(0)
-        #     return negative_examples
-
-        negative_examples = np.random.choice(self.negative_examples_distribution_values, 
-                                size=number_of_negative_examples * words_to_avoid.shape[0], 
-                                replace=True,
-                                p=self.negative_examples_distribution).reshape(-1, number_of_negative_examples)
+    def generate_negative_examples(self, number_of_negative_examples, words_to_avoid):        
+        if self.negative_examples_cache.empty():
+            self.populate_cache(number_of_negative_examples)
+        negative_examples = self.negative_examples_cache.get()[:words_to_avoid.shape[0], :]
+# 
         words_to_avoid = np.expand_dims(words_to_avoid, axis=1)
         # Compare negative samples with the words that are indeed in the context. 
         indices_to_change = (negative_examples == words_to_avoid)
         # indices_to_change will have the same shape as negative_examples: (batch_size, number_of_negative_examples)
         while np.any(indices_to_change):
-            replacement = np.random.choice(self.negative_examples_distribution_values, np.nonzero(indices_to_change)[0].shape[0], replace=True, p=self.negative_examples_distribution)
+            replacement = self.sampler.sample(np.nonzero(indices_to_change)[0].shape[0])
             negative_examples[indices_to_change] = replacement
             indices_to_change = (negative_examples == words_to_avoid)
         
         return negative_examples
+
+        # No cache
+        # negative_examples = self.sampler.sample(number_of_negative_examples * words_to_avoid.shape[0]).reshape(-1, number_of_negative_examples)
+        # words_to_avoid = np.expand_dims(words_to_avoid, axis=1)
+        # # Compare negative samples with the words that are indeed in the context. 
+        # indices_to_change = (negative_examples == words_to_avoid)
+        # # indices_to_change will have the same shape as negative_examples: (batch_size, number_of_negative_examples)
+        # while np.any(indices_to_change):
+        #     replacement = self.sampler.sample(np.nonzero(indices_to_change)[0].shape[0])
+        #     negative_examples[indices_to_change] = replacement
+        #     indices_to_change = (negative_examples == words_to_avoid) 
+        # return negative_examples
 
 
 # TODO better add a new one, where you return full sentence or not (or lp, e, rp)
@@ -147,6 +143,31 @@ class WordWiseSGMweDataset(SkipGramMinimizationDataset):
     def __init__(self, params):#filepath, window_size=5, full_sentence=False):
         super().__init__(params['train_file'], params['negative_examples_distribution'], params['vocabulary'], params['window_size'])
         self.number_of_negative_examples = params['number_of_negative_examples']
+
+        # caching
+        # self.cache = {}
+        # if os.path.exists(f"{params['train_file']}_preprocessed_wwsgmd"):
+        #     with open(f"{params['train_file']}_preprocessed_wwsgmd", 'rb') as f:
+        #         self.cache = pickle.load(f)
+        # else:
+        #     for i in tqdm.tqdm(range(len(self.dataset))):
+        #         words = super().__getitem__(i)
+        #         entity = list(filter(lambda x: '_' in x, words))[0]  # Should always exist. If it does not, then the method make_corpus from utils.py was not used
+        #         index = words.index(entity)
+        #         span = (index, index+1) # Because the mwe are merged with '_', making them, essentially, as a single word
+
+        #         lc = words[max(0, span[0]-self.window_size):span[0]]
+        #         rc = words[span[1]:span[1]+self.window_size]
+        #         entity = entity.split('_')
+
+        #         entity_vectorized = self.vocabulary.to_input_array(entity)
+        #         # Add the necessary pad. Every context should be of length 2*window_size
+        #         context = lc + rc
+        #         context_vectorized = self.vocabulary.to_input_array(context + (2*self.window_size - len(context)) * [self.vocabulary.pad_token])            
+        #         self.cache[i] = [entity_vectorized, context_vectorized, len(entity), len(context)]
+
+            # with open(f"{params['train_file']}_preprocessed_wwsgmd", 'wb') as f:
+                # pickle.dump(self.cache, f)
 
     def __getitem__(self, index: int):
         words = super().__getitem__(index)
@@ -163,8 +184,8 @@ class WordWiseSGMweDataset(SkipGramMinimizationDataset):
         context = lc + rc
         context_vectorized = self.vocabulary.to_input_array(context + (2*self.window_size - len(context)) * [self.vocabulary.pad_token])
         negative_examples_vectorized = self.generate_negative_examples(self.number_of_negative_examples, context_vectorized[:len(context)]) # skip pads
-
         return [entity_vectorized, context_vectorized, negative_examples_vectorized, len(entity)] 
+        # return [entity_vectorized, context_vectorized, negative_examples_vectorized, len(entity)] 
 
 
 class SentenceWiseSGMweDataset(SkipGramMinimizationDataset):
@@ -300,3 +321,4 @@ class JointTrainingSGMinimizationDataset(data.Dataset):
 
     def __getitem__(self, index: int):
         return [self.words_sg[index], self.mwe_sg[index]] # to use the same collate_fn for the generator in train.py script
+   
