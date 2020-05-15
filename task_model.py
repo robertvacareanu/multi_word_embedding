@@ -230,7 +230,7 @@ class MWEJointTraining(nn.Module):
         self.embedding_function = embedding_function
         self.mwe_f = mwe_f
         self.ls = nn.LogSigmoid()
-        self.mwe_task_model = MWESkipGramTaskModel(embedding_function, mwe_f)
+        self.mwe_task_model = MWESkipGramTaskModel(embedding_function, mwe_f, embedding_device, device)
         self.device = device
         self.embedding_device = embedding_device
 
