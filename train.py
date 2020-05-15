@@ -132,11 +132,12 @@ class MWETrain(object):
                                 params['save_embeddings'])
                     exit()
 
-        if self.sg_embeddings.context_embeddings.weight.shape[0] > 2500000:
-            print("HERE1")
+        print(self.sg_embeddings.context_embeddings.weight.shape[0])
+        if self.sg_embeddings.context_embeddings.weight.shape[0] > 2000000:
+            print("Store embeddings on cpu")
             self.embedding_device = torch.device('cpu')
         else:
-            print("HERE2")
+            print("Store embeddings on cuda")
             self.embedding_device = self.device
 
         print("Embeddings - done")
@@ -376,6 +377,7 @@ class MWETrain(object):
                     'rpv_len': torch.tensor(rp_lens)}, negative_for_right_sentence_vectorized, negative_for_left_sentence_vectorized,
 
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description="Entry point of the application.")
@@ -424,7 +426,7 @@ if __name__ == '__main__':
     print(result)
     print(config)
     # Override based on cli arguments
-    for update_param in ['learning_rate', 'batch_size', 'num_epochs', 'number_of_negative_examples', 'save_path', 'which_cuda', 'weight_decay', 'early_stopping', 'random_seed', 'pretrained_model', 'heldout_data']:
+    for update_param in ['learning_rate', 'batch_size', 'num_epochs', 'number_of_negative_examples', 'save_path', 'which_cuda', 'weight_decay', 'early_stopping', 'random_seed', 'pretrained_model', 'heldout_data', 'flip_right_sentence']:
         if result[update_param] is not None:
             config[update_param] = result[update_param]
 

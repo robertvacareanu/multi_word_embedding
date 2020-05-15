@@ -102,11 +102,12 @@ class SkipGramMinimizationDataset(data.Dataset):
         words = sentence.split(' ')
         return words
 
+    # Generates an array of (window_size*2, number_of_negative_examples)
     def generate_negative_examples(self, number_of_negative_examples, words_to_avoid):        
         if self.negative_examples_cache.empty():
             self.populate_cache(number_of_negative_examples)
         negative_examples = self.negative_examples_cache.get()[:words_to_avoid.shape[0], :]
-# 
+ 
         words_to_avoid = np.expand_dims(words_to_avoid, axis=1)
         # Compare negative samples with the words that are indeed in the context. 
         indices_to_change = (negative_examples == words_to_avoid)
@@ -118,17 +119,25 @@ class SkipGramMinimizationDataset(data.Dataset):
         
         return negative_examples
 
+
+    # Generates a (words_to_avoid.shape[0], number_of_negative_examples) array. Not using cache, so it;s more flexible.
+    # It's more flexible because, when using the cache, we have to know a priori the size of the array to generate. When
+    # generating for single tokens (we assume exactly one mwe is per sentence), caching works ok. When we need to generate
+    # for more, for example for a word wise skip gram, we don't know a priori the length of the sentence. One possibility is
+    # to repeteadly call generate negative examples for every non-pad word in the context of every word, but this would
+    # probably be too slow 
+    def generate_negative_examples_no_cache(self, number_of_negative_examples, words_to_avoid):
         # No cache
-        # negative_examples = self.sampler.sample(number_of_negative_examples * words_to_avoid.shape[0]).reshape(-1, number_of_negative_examples)
-        # words_to_avoid = np.expand_dims(words_to_avoid, axis=1)
-        # # Compare negative samples with the words that are indeed in the context. 
-        # indices_to_change = (negative_examples == words_to_avoid)
-        # # indices_to_change will have the same shape as negative_examples: (batch_size, number_of_negative_examples)
-        # while np.any(indices_to_change):
-        #     replacement = self.sampler.sample(np.nonzero(indices_to_change)[0].shape[0])
-        #     negative_examples[indices_to_change] = replacement
-        #     indices_to_change = (negative_examples == words_to_avoid) 
-        # return negative_examples
+        negative_examples = self.sampler.sample(number_of_negative_examples * words_to_avoid.shape[0]).reshape(-1, number_of_negative_examples)
+        words_to_avoid = np.expand_dims(words_to_avoid, axis=1)
+        # Compare negative samples with the words that are indeed in the context. 
+        indices_to_change = (negative_examples == words_to_avoid)
+        # indices_to_change will have the same shape as negative_examples: (batch_size, number_of_negative_examples)
+        while np.any(indices_to_change):
+            replacement = self.sampler.sample(np.nonzero(indices_to_change)[0].shape[0])
+            negative_examples[indices_to_change] = replacement
+            indices_to_change = (negative_examples == words_to_avoid) 
+        return negative_examples
 
 
 # TODO better add a new one, where you return full sentence or not (or lp, e, rp)
@@ -301,7 +310,13 @@ class WordWiseSGDataset(SkipGramMinimizationDataset):
 
         non_pads_idx = context_words_vectorized != 0
 
-        negative_examples_vectorized = self.generate_negative_examples(self.number_of_negative_examples, context_words_vectorized[non_pads_idx].reshape(-1)).reshape(-1, self.number_of_negative_examples)
+        # Observe that this calls generate_negative_examples_no_cache instead of generate_negative_examples
+        # Besides the difference that this one doesn't use cache, this call is necessary because when using cache,
+        # we generate negative examples for a single pair (mwe or word). On this dataset, we return all the pairs (words)
+        # for a given sentence. We don't know the sentence length a priori, so we cannot generate negative examples for a full sentence
+        # Sure, we can repeteadly call generate_negative_examples for each word in the given sentence and concatenate at the end,
+        # but this would probably be slower than generating for the full sentence
+        negative_examples_vectorized = self.generate_negative_examples_no_cache(self.number_of_negative_examples, context_words_vectorized[non_pads_idx].reshape(-1)).reshape(-1, self.number_of_negative_examples)
 
         # sentence_length is the length of the sentence after transforming the mwe into multiple words
         # (sentence_length), (sentence_length, 2*window_size), (context_size, number_of_negative_examples) 
