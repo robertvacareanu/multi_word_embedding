@@ -197,10 +197,12 @@ class SentenceWiseSGMweDataset(SkipGramMinimizationDataset):
 
     Different datasets are needed not only because different training regimes need different data, but also because
     in some cases (such as this one), we cannot pad in advance, because we don't know the max sentence length
+    Context (left and right) can be padded because we know the window_size in advance
     """
     def __init__(self, params):#filepath, window_size=5, full_sentence=False):
         super().__init__(params['train_file'], params['negative_examples_distribution'], params['vocabulary'], params['window_size'])
         self.number_of_negative_examples = params['number_of_negative_examples']
+        self.flip_right_sentence = params['flip_right_sentence']
 
     def __getitem__(self, index: int):
         words = super().__getitem__(index)
@@ -216,7 +218,11 @@ class SentenceWiseSGMweDataset(SkipGramMinimizationDataset):
 
         left_sentence_vectorized = self.vocabulary.to_input_array(words[0:span[0]] + entity)
         right_context_vectorized = self.vocabulary.to_input_array(rc + (self.window_size - len(rc)) * [self.vocabulary.pad_token])
-        right_sentence_vectorized = self.vocabulary.to_input_array(entity + words[span[1]:])
+        if self.flip_right_sentence:
+            right_sentence_vectorized = self.vocabulary.to_input_array(list(reversed(entity + words[span[1]:])))
+        else:
+            right_sentence_vectorized = self.vocabulary.to_input_array(entity + words[span[1]:])
+
         left_context_vectorized = self.vocabulary.to_input_array(lc + (self.window_size - len(lc)) * [self.vocabulary.pad_token])
 
 

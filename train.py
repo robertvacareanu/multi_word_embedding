@@ -100,10 +100,10 @@ class MWETrain(object):
             'DirectMinimization': {'train_file': params['train_file']},
             'SkipGramMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
                                     'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
-                                    'negative_examples_distribution': nsd, 'full_sentence': False},
+                                    'negative_examples_distribution': nsd},
             'SkipGramSentenceMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
-                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
-                                    'negative_examples_distribution': nsd, 'full_sentence': False},
+                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 'flip_right_sentence': params['flip_right_sentence'],
+                                    'negative_examples_distribution': nsd},
             'JointTrainingSkipGramMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
                                     'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
                                     'negative_examples_distribution': nsd}
@@ -410,6 +410,11 @@ if __name__ == '__main__':
     parser.add_argument("--pretrained-model", type=str, required=False, default=None, help="Path to the pretrained model. Used to fine tune")
     parser.add_argument("--heldout-data", type=str, required=False, default=None, help="Path to the heldout data. Used for early stopping")
     parser.add_argument("--only-eval", action='store_true', help="Can be used to only evaluate a pretrained model")
+    help_message = "In the case of sentence-wise skip-gram minimization, this flags signals whether " \
+        "to flip the right part of the sentence. In this way, the LSTM might go from start to entity to predict " \
+        "the right context, and from end to entity to predict the left context. Doing this makes the LSTM always finish " \
+        " on the entity, providing, thus, a more uniform process"
+    parser.add_argument("--flip-right-sentence", action='store_true', help=help_message)
 
     result = parser.parse_args()
     config = json.load(open(result.config_file))
