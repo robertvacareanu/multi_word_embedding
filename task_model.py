@@ -102,7 +102,7 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         self.embedding_function = embedding_function
         self.mwe_f = mwe_f
         self.device = device
-        self.cpu_device = embedding_device
+        self.embedding_device = embedding_device
         self.ls = nn.LogSigmoid()
 
     def forward(self, left_sentence_vectorized, right_sentence_vectorized, right_context, left_context, lens, negative_examples_left, negative_examples_right):
