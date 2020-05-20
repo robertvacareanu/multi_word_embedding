@@ -15,7 +15,7 @@ class MWESkipGramTaskModel(nn.Module):
     capabilities of predicting its neighbors.
     """
 
-    def __init__(self, embedding_function, mwe_f, embedding_device, device):
+    def __init__(self, embedding_function, mwe_f, embedding_device, device, additional_info):
         super().__init__()
         self.embedding_function = embedding_function
         self.mwe_f = mwe_f
@@ -66,7 +66,7 @@ class MWESkipGramTaskModel(nn.Module):
 
 class MWEMeanSquareErrorTaskModel(nn.Module):
 
-    def __init__(self, embedding_function, mwe_f, embedding_device, device):
+    def __init__(self, embedding_function, mwe_f, embedding_device, device, additional_info):
         super().__init__()
         # nn.Embedding.from_pretrained()
         self.embedding_function = embedding_function
@@ -97,7 +97,7 @@ class MWESentenceSkipGramTaskModel(nn.Module):
     the right and vice-versa, but anything capable of mapping a a sequence of vectors to a single vector words 
     """
 
-    def __init__(self, embedding_function, mwe_f, embedding_device, device):
+    def __init__(self, embedding_function, mwe_f, embedding_device, device, additional_info):
         super().__init__()
         self.embedding_function = embedding_function
         self.mwe_f = mwe_f
@@ -224,7 +224,7 @@ class MWEJointTraining(nn.Module):
     capabilities of predicting its neighbors. 
     """
 
-    def __init__(self, embedding_function, mwe_f, embedding_device, device):
+    def __init__(self, embedding_function, mwe_f, embedding_device, device, additional_info):
         super().__init__()
         # nn.Embedding.from_pretrained()
         self.embedding_function = embedding_function

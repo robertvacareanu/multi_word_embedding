@@ -47,6 +47,61 @@ class LSTMMweModel(nn.Module):
         return last_hidden
 
 
+class LSTMMweModelManualBidirectional(nn.Module):
+    """
+    Generating an embedding for a multi-word entity by applying an LSTM over the embeddings of each constituent word.
+    """
+
+    def __init__(self, params):
+        super().__init__()
+        self.lstm1 = nn.LSTM(input_size=params['embedding_dim'], hidden_size=params['embedding_dim'], num_layers=params['num_layers'], bias=True,
+                            bidirectional=False)
+        self.lstm2 = nn.LSTM(input_size=params['embedding_dim'], hidden_size=params['embedding_dim'], num_layers=params['num_layers'], bias=True,
+                            bidirectional=False)
+
+        # same hidden size, same number of layers
+        self.hidden_size = self.lstm1.hidden_size
+        self.num_layers = self.lstm1.num_layers
+
+        for name, param in self.lstm1.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
+
+        for name, param in self.lstm2.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.xavier_normal_(param)
+
+    def forward(self, batch_mwe: torch.Tensor, mwe_lengths: torch.Tensor, which_lstm=0):
+        """
+
+        :param batch_mwe: (batch_size, max_entity_size, embedding_dim) - tensor containing the batch and the embedding of
+        each word for a multi-word entity
+        :param mwe_lengths: A list containing the length (number of words) of each multi-word entity in the batch
+        :return: A tensor (batch_size, embedding_dim) representing the embedding of each multi-word entity (mwe),
+        corresponding to the last_hidden state for each mwe (if bidirectional = True return (batch, 2*embedding_dim)
+        """
+        x = nn.utils.rnn.pack_padded_sequence(batch_mwe, mwe_lengths, batch_first=True)
+        if which_lstm == 1:
+            _, (last_hidden, _) = self.lstm1(x)
+        elif which_lstm == 2:
+            _, (last_hidden, _) = self.lstm2(x)
+        elif which_lstm == 0:
+            _, (last_hidden1, _) = self.lstm1(x)
+            _, (last_hidden2, _) = self.lstm2(x)
+            last_hidden1 = last_hidden1.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)
+            last_hidden2 = last_hidden2.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)
+            last_hidden = (last_hidden1 + last_hidden2)/2
+
+        # (num_layers, 2 if bidirectional else 1, batch_size, hidden_size)
+        last_hidden = last_hidden.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)[-1,0,:,:]
+
+        return last_hidden        
+
+
 class LSTMMultiply(nn.Module):
     """
     Generating an embedding for a multi-word entity by applying an LSTM over the embeddings of each constituent word.

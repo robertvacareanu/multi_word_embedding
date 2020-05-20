@@ -227,10 +227,7 @@ class SentenceWiseSGMweDataset(SkipGramMinimizationDataset):
 
         left_sentence_vectorized = self.vocabulary.to_input_array(words[0:span[0]] + entity)
         right_context_vectorized = self.vocabulary.to_input_array(rc + (self.window_size - len(rc)) * [self.vocabulary.pad_token])
-        if self.flip_right_sentence:
-            right_sentence_vectorized = self.vocabulary.to_input_array(list(reversed(entity + words[span[1]:])))
-        else:
-            right_sentence_vectorized = self.vocabulary.to_input_array(entity + words[span[1]:])
+        right_sentence_vectorized = self.vocabulary.to_input_array(entity + words[span[1]:])
 
         left_context_vectorized = self.vocabulary.to_input_array(lc + (self.window_size - len(lc)) * [self.vocabulary.pad_token])
 
