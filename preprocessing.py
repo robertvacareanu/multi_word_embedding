@@ -16,7 +16,7 @@ def generate_corpus_files(corpus_path, mwe_train_path, base_path):
             make_corpus(corpus_path, f"{save_path}_{i}", mwe_train_path, i)
 
     if not os.path.exists(f"{save_path}_complete"):
-        make_corpus(corpus_path, f"{save_path}_complete", mwe_train_path, 50000000)
+        make_corpus(corpus_path, f"{save_path}_complete", mwe_train_path, 5000000000)
     return
 
 
@@ -25,8 +25,9 @@ def generate_vocabulary_files(corpus_path, mwe_all_path, base_path):
     save_path = base_path + '/vocab'
     if not os.path.exists(save_path):
         os.mkdir(save_path)
-    for i in tqdm.tqdm([50000, 100000, 250000, 500000, 1000000, 2500000, 5000000, 'complete']):
+    for i in tqdm.tqdm(['complete']):
         if not os.path.exists(save_path + f'/vocab_{mwe_all_path.split("/")[-1].split(".")[0]}_{i}.json'):
+            print(corpus_path + f'_{i}')
             v = make_sgot_word_vocab(corpus_path + f'_{i}', mwe_all_path, read_wikipedia_corpus)
             v.save(save_path + f'/vocab_{mwe_all_path.split("/")[-1].split(".")[0]}_{i}.json')
 
@@ -38,7 +39,7 @@ def generate_embedding_files(corpus_path, embeddings_path, embeddings_type, base
     print("Loading the model")
     model = gensim.models.KeyedVectors.load(embeddings_path)
     print("Model loaded")
-    for i in tqdm.tqdm([50000, 100000, 250000, 500000, 1000000, 2500000, 5000000, 'complete']):
+    for i in tqdm.tqdm(['complete']):
         if not os.path.exists(save_path + f'/embeddings_{embeddings_type}_{i}.pt'):
             vocabulary = AbstractVocabulary.load(base_path + f'/vocab/vocab_{mwe_all_path.split("/")[-1].split(".")[0]}_{i}.json')
             center_context_emb = SkipGramEmbeddings.from_embedding_file(model, vocabulary)
@@ -68,9 +69,9 @@ if __name__ == "__main__":
     parser.add_argument('--embeddings-type', type=str, required=False, default='w2v', help="Which type of embeddings is used. Useful when saving")
 
     result = parser.parse_args()
-    print("Generating corpus files")
-    generate_corpus_files(result.corpus_path, result.mwe_train_path, result.base_path)
-    print("Done")
+    # print("Generating corpus files")
+    # generate_corpus_files(result.corpus_path, result.mwe_train_path, result.base_path)
+    # print("Done")
     print("Generating vocabulary files")
     generate_vocabulary_files(result.base_path + '/' + result.corpus_path.split('/')[-1], result.mwe_all_path, result.base_path)
     print("Done")
@@ -78,3 +79,6 @@ if __name__ == "__main__":
     generate_embedding_files(result.corpus_path, result.embeddings_path, result.embeddings_type, result.base_path, result.mwe_all_path)
     print("Done")
 
+    # Usage example:
+    # python preprocessing.py --embeddings-path /work/rvacarenu/code/mwe/NC_embeddings/output/distributional/fasttext_sg/200d_oc/win2/wv.bin --corpus-path /data/nlp/corpora/multi_word_embedding/data/wikipedia/corpora/en_corpus_tokenized_bigrams --mwe-train-path /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_random_ncvocab/random_vocab.txt --mwe-all-path /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_random_ncvocab/random_vocab_and_ncvocab.txt --base-path /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_random_ncvocab/
+    

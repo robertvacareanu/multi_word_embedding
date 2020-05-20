@@ -72,3 +72,16 @@ if __name__ == '__main__':
     eval_result = bootstrapping_test(evaluation1, evaluation2)
     print(eval_result)
 
+    """
+python -i model_evaluation.py \
+--model1 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/models/b10/mwe_f_ft_2_200_50000_2.pt \
+--model2 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_random_ncvocab/models/b10/mwe_f_ft_2_200_50000_finetuned \
+--model1-config /net/kate/storage/data/nlp/corpora/multi_word_embedding/data/wikipedia/configs/tokenized_bigrams_oc_nctrain_ncvocab/config_model_sgmot_oc_ft_2_200_50000.json \
+--model2-config /net/kate/storage/data/nlp/corpora/multi_word_embedding/data/wikipedia/configs/tokenized_bigrams_oc_nctrain_ncvocab/config_model_sgmot_oc_ft_2_200_50000.json \
+--train-path /data/nlp/corpora/multi_word_embedding/data/tratz/coarse_grained_lexical_full/train.tsv \
+--eval-path /data/nlp/corpora/multi_word_embedding/data/tratz/coarse_grained_lexical_full/val.tsv \
+--embeddings-path1 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/embeddings/embeddings_ft_w2_e200_sg_50000.pt \
+--embeddings-path2 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/embeddings/embeddings_ft_w2_e200_sg_50000.pt \
+--vocabulary-path1 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/vocab/vocab_nc_vocab_50000.json \
+--vocabulary-path2 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/vocab/vocab_nc_vocab_50000.json
+    """

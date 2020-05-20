@@ -103,6 +103,7 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         self.mwe_f = mwe_f
         self.device = device
         self.embedding_device = embedding_device
+        self.flip_right_sentence = additional_info['flip_right_sentence']
         self.ls = nn.LogSigmoid()
 
     def forward(self, left_sentence_vectorized, right_sentence_vectorized, right_context, left_context, lens, negative_examples_left, negative_examples_right):
@@ -128,7 +129,10 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         # (batch_size, window_size, embedding_size)
         left_part_embeddings = self.embedding_function.center_embeddings(left_sentence_vectorized.to(self.embedding_device)).to(self.device)
         # (batch_size, embedding_size)
-        mwe_left = self.mwe_f(left_part_embeddings[lpv_lens_idx], lpv_lens_sorted)
+        if self.flip_right_sentence:
+            mwe_left = self.mwe_f.forward(left_part_embeddings[lpv_lens_idx], lpv_lens_sorted, which_lstm=1)
+        else:
+            mwe_left = self.mwe_f.forward(left_part_embeddings[lpv_lens_idx], lpv_lens_sorted)
         # (batch_size, embedding_size)
         mwe_left = torch.zeros_like(mwe_left).to(mwe_left.device).scatter_(0, lpv_lens_idx.unsqueeze(dim=1).expand(-1, mwe_left.shape[1]).to(mwe_left.device), mwe_left) # unsort
         mwe_left = mwe_left.unsqueeze(dim=1).expand(-1, right_context.shape[1], -1).reshape(-1, mwe_left.shape[1])[rc_not_pad]
@@ -139,7 +143,11 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         lc_not_pad = left_context.reshape(-1) != 0
         rpv_lens_sorted, rpv_lens_idx = lens['rpv_len'].sort(descending=True)
         right_part_embeddings = self.embedding_function.center_embeddings(right_sentence_vectorized.to(self.embedding_device)).to(self.device)
-        mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted)
+        if self.flip_right_sentence:
+            mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted)
+        else:
+            mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted, which_lst=2)
+
         mwe_right = torch.zeros_like(mwe_right).to(mwe_right.device).scatter_(0, rpv_lens_idx.unsqueeze(dim=1).expand(-1, mwe_right.shape[1]).to(mwe_right.device), mwe_right) # unsort
         mwe_right = mwe_right.unsqueeze(dim=1).expand(-1, left_context.shape[1], -1).reshape(-1, mwe_right.shape[1])[lc_not_pad]
         # (batch_size, window_size, embedding_size)
@@ -168,7 +176,7 @@ class MWEWordLevelSkipGramTaskModel(nn.Module):
     Task model for word-level skip-gram
     """
 
-    def __init__(self, embedding_function, mwe_f, embedding_device, device):
+    def __init__(self, embedding_function, mwe_f, embedding_device, device, additional_info):
         super().__init__()
         # nn.Embedding.from_pretrained()
         self.embedding_function = embedding_function

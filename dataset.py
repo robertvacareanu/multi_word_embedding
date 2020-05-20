@@ -227,7 +227,10 @@ class SentenceWiseSGMweDataset(SkipGramMinimizationDataset):
 
         left_sentence_vectorized = self.vocabulary.to_input_array(words[0:span[0]] + entity)
         right_context_vectorized = self.vocabulary.to_input_array(rc + (self.window_size - len(rc)) * [self.vocabulary.pad_token])
-        right_sentence_vectorized = self.vocabulary.to_input_array(entity + words[span[1]:])
+        if self.flip_right_sentence:
+            right_sentence_vectorized = self.vocabulary.to_input_array(list(reversed(entity + words[span[1]:])))
+        else:
+            right_sentence_vectorized = self.vocabulary.to_input_array(entity + words[span[1]:])
 
         left_context_vectorized = self.vocabulary.to_input_array(lc + (self.window_size - len(lc)) * [self.vocabulary.pad_token])
 
@@ -340,3 +343,12 @@ class JointTrainingSGMinimizationDataset(data.Dataset):
     def __getitem__(self, index: int):
         return [self.words_sg[index], self.mwe_sg[index]] # to use the same collate_fn for the generator in train.py script
    
+
+# from vocabulary import AbstractVocabulary
+# v = AbstractVocabulary.load('/net/kate/storage/data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/vocab/vocab_nc_vocab_50000.json') 
+# negative_sampling_distribution = torch.tensor(v.counts).float()
+# path = '/data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/en_corpus_tokenized_bigrams_50000'
+# negative_sampling_distribution = negative_sampling_distribution.pow(3/4).numpy()
+# params = {'train_file': path, 'number_of_negative_examples': 10, 'vocabulary': v, 'window_size': 2, 'negative_examples_distribution': negative_sampling_distribution, 'full_sentence': False}
+# ds = WordWiseSGDataset(params)
+# ds[0]

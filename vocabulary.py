@@ -43,6 +43,33 @@ def make_dm_word_vocab(path):
     return vocab
 
 
+# -- Add only the words in the max context. Reduces the vocabulary to 80%, but this is not enough in some cases (still size > cuda memory) => still have to use
+# subsets of the whole data
+# def make_sgot_word_vocab(corpus, mwes, corpus_reader, window_size=10):
+#     vocab = AbstractVocabulary(None)
+#     for words in corpus_reader(corpus):
+#         entity = list(filter(lambda x: '_' in x, words))[0]  # Should always exist. If it does not, then the method make_corpus from utils.py was not used
+#         index = words.index(entity)
+#         span = (index, index+1) # Because the mwe are merged with '_', making them, essentially, a single word
+#         context = words[max(0, span[0]-window_size):span[0]] + words[span[1]:span[1]+window_size]
+
+#         for word in context:
+#             vocab.add(word, 1)
+            
+#         vocab.add(entity, 1)
+        
+#         for constituent in entity.split('_'):
+#             vocab.add(constituent, 1)
+
+#     with open(mwes, 'r') as in_f:
+#         for line in in_f:
+#             line = line.replace('\n', '')
+#             mwe = line.replace('\t', '_')
+#             mwe_constituents = line.split('\t')
+#             vocab.add(mwe, 1)
+#             for constituent in mwe_constituents:
+#                 vocab.add(constituent, 1)
+#     return vocab
 def make_sgot_word_vocab(corpus, mwes, corpus_reader):
     vocab = AbstractVocabulary(None)
     for sentence in corpus_reader(corpus):

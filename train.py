@@ -14,7 +14,7 @@ from datetime import datetime
 from dataset import WordWiseSGMweDataset, SkipGramMinimizationDataset, JointTrainingSGMinimizationDataset, SentenceWiseSGMweDataset, DirectMinimizationDataset
 from embeddings import SkipGramEmbeddings, RandomInitializedEmbeddings
 from evaluate import Evaluation, Evaluation2
-from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel, AttentionWeightedModel
+from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel, AttentionWeightedModel, LSTMMweModelManualBidirectional
 from task_model import MWESkipGramTaskModel, MWEMeanSquareErrorTaskModel, MWESentenceSkipGramTaskModel, MWEJointTraining, AutoEncoderPreTraining
 from task_manager import TaskManager
 from utils import init_random, format_number, read_wikipedia_corpus, flatten
@@ -44,7 +44,8 @@ class MWETrain(object):
         # dictionary containing the mappings from string to mwe function.
         mwe_function_map = {'LSTMMultiply': LSTMMultiply, 'LSTMMweModel': LSTMMweModel,
                             'FullAdd': FullAdd, 'MultiplyMean': MultiplyMean, 'MultiplyAdd': MultiplyAdd,
-                            'CNNMweModel': CNNMweModel, 'LSTMMweModelPool': LSTMMweModelPool, 'GRUMweModel': GRUMweModel, 'AttentionWeightedModel': AttentionWeightedModel,
+                            'CNNMweModel': CNNMweModel, 'LSTMMweModelPool': LSTMMweModelPool, 'GRUMweModel': GRUMweModel, 'AttentionWeightedModel': AttentionWeightedModel, 
+                            'LSTMMweModelManualBidirectional': LSTMMweModelManualBidirectional,
                             'Max': Max, 'Average': Average, 'RandomLSTM': RandomLSTM}
 
         # Different training regimes may need different data format (or more data)
@@ -85,8 +86,11 @@ class MWETrain(object):
 
         print("Vocabulary - done")
 
-        self.device = torch.device(f"cuda:{params['which_cuda']}" if torch.cuda.is_available(
-        ) and params['which_cuda'] is not None else "cpu")
+        if params['which_cuda'] is None or int(params['which_cuda']) < 0 or not torch.cuda.is_available():
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(f"cuda:{params['which_cuda']}")
+        print(f"Training on {self.device}")
 
         negative_sampling_distribution = torch.tensor(
             self.vocabulary.counts).float().to(self.device)
@@ -109,6 +113,12 @@ class MWETrain(object):
                                     'negative_examples_distribution': nsd}
         }
 
+        additional_info = {
+            'DirectMinimization': {},
+            'SkipGramMinimization': {},
+            'SkipGramSentenceMinimization': {'flip_right_sentence': params['flip_right_sentence']},
+            'JointTrainingSkipGramMinimization': {}
+        }
 
         self.num_epochs = params['num_epochs']
         self.save_path = params['save_path']
@@ -144,10 +154,16 @@ class MWETrain(object):
         # init_random(1)
         self.mwe_f = mwe_function_map[params['model']['name']](
             params['model']['attributes']).to(self.device)
+
+        # Add second one; Do not change rng if we don't add
+        if params['flip_right_sentence']:
+            additional_info['SkipGramSentenceMinimization']['second_mwe_f'] = self.mwe_f = mwe_function_map[params['model']['name']](
+            params['model']['attributes']).to(self.device)
+
         if params['pretrained_model'] is not None:
             self.mwe_f.load_state_dict(torch.load(f"{params['pretrained_model']}.pt", map_location=self.device))
         self.task_model = self.task_model_types[params['train_objective']](
-            self.sg_embeddings, self.mwe_f, self.embedding_device, self.device)#.to(self.device)
+            self.sg_embeddings, self.mwe_f, self.embedding_device, self.device, additional_info[params['train_objective']])#.to(self.device)
         self.task_model.mwe_f.to(self.device)
         self.task_model.embedding_function.to(self.embedding_device) # embeddings can get too big for GPU
 
@@ -179,6 +195,7 @@ class MWETrain(object):
 
         self.number_of_iter = 1000
         self.debug = False
+        print(f"Model norm: {format_number(np.sum([torch.sum(torch.abs(x)) for x in self.task_model.mwe_f.parameters()]))}")
 
 
     def train(self):
@@ -304,6 +321,10 @@ class MWETrain(object):
         if torch.any(learned_multi_word_entities == self.vocabulary.unk_id) or torch.any(mwe_vectorized == self.vocabulary.unk_id):
             print(
                 "Some of the mwes (constituents + learned) in the current batch are unknown. Is everything alright?")
+        # if learned_multi_word_entities[learned_multi_word_entities == self.vocabulary.unk_id].shape[0] > learned_multi_word_entities.shape[0]/2:
+        #     print(
+        #         "The majority of the learned mwe in the current batch are unknown. Is everything alright?")
+
         return mwe_vectorized, mwe_len, learned_multi_word_entities
 
     def prepare_skipgram_minimization(self, batch):
@@ -419,6 +440,7 @@ if __name__ == '__main__':
     parser.add_argument("--flip-right-sentence", action='store_true', help=help_message)
 
     result = parser.parse_args()
+
     config = json.load(open(result.config_file))
     model_config = json.load(open(config['model']))
     config = {**config, **model_config}

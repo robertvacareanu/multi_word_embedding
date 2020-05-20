@@ -42,7 +42,15 @@ class SkipGramEmbeddings(nn.Module):
     # The way model is created depends on the type of embeddings. e.g. for FastText: gensim.models.KeyedVectors.load
     @staticmethod
     def from_embedding_file(model, vocabulary):
+        # model = gensim.models.Word2Vec.load(embeddings_path)    
         counts = np.array(vocabulary.counts)
+        # print('state_power' in model)
+        # print('state' in model)
+        # print('power' in model)
+        # print('state_power' in model.wv.vocab)
+        # print('state' in model.wv.vocab)
+        # print('power' in model.wv.vocab)
+        # exit()
         words = [w for w in vocabulary.element2id.keys()][counts[counts == 0].shape[0]:]  # skip over first k dummy words with 0 count (<pad>, <unk> etc). Should always be the first ones
         center_unk = model.wv.vectors[model.wv.vocab['<unk>'].index]
         context_unk = model.trainables.syn1neg[model.wv.vocab['<unk>'].index]
@@ -81,11 +89,13 @@ class RandomInitializedEmbeddings(nn.Module):
     def __init__(self, vocabulary, embedding_size=200) -> None:
         super().__init__()
         self.vocabulary = vocabulary
-        self.embedding_size = 200
+        self.embedding_size = embedding_size
         self.context_embeddings = nn.Embedding(num_embeddings=len(vocabulary), embedding_dim=embedding_size)
         self.center_embeddings = nn.Embedding(num_embeddings=len(vocabulary), embedding_dim=embedding_size)
         nn.init.xavier_normal_(self.context_embeddings.weight)
         nn.init.xavier_normal_(self.center_embeddings.weight)
+        # self.outside_embs.weight.requires_grad_(False)
+        # self.center_embs.weight.requires_grad_(False)
 
     def to_saved_file(self, save_path):
         center_context_embeddings = torch.cat([self.center_embeddings.weight.unsqueeze(dim=0), self.context_embeddings.weight.unsqueeze(dim=0)], dim=0)

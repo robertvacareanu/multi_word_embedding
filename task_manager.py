@@ -71,6 +71,7 @@ class TaskManager():
 
                 running_epoch_loss.append(loss_item)
 
+        # print(f"REL: {round(np.mean(running_epoch_loss), 5)} - {[round(x, 5) for x in running_epoch_loss[:20]]} {round(running_epoch_loss[-1], 5)}")
         return running_epoch_loss
             
     def evaluateOnTratz(self, params, mwe_f, sg_embeddings, embedding_device, device):
@@ -106,4 +107,6 @@ class TaskManager():
             loss_item = loss.item()
             running_epoch_loss.append(loss_item)
             
+        # print(f"REvL: {round(np.mean(running_epoch_loss), 5)} - {[round(x, 5) for x in running_epoch_loss[:20]]} {round(running_epoch_loss[-1], 5)}\n")
+        
         return np.mean(running_epoch_loss)
