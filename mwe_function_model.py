@@ -94,7 +94,7 @@ class LSTMMweModelManualBidirectional(nn.Module):
             _, (last_hidden2, _) = self.lstm2(x)
             last_hidden1 = last_hidden1.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)
             last_hidden2 = last_hidden2.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)
-            last_hidden = (last_hidden1 + last_hidden2)/2
+            return ((last_hidden1 + last_hidden2)/2)[-1,0,:,:]
 
         # (num_layers, 2 if bidirectional else 1, batch_size, hidden_size)
         last_hidden = last_hidden.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)[-1,0,:,:]

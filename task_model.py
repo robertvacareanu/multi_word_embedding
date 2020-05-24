@@ -144,9 +144,9 @@ class MWESentenceSkipGramTaskModel(nn.Module):
         rpv_lens_sorted, rpv_lens_idx = lens['rpv_len'].sort(descending=True)
         right_part_embeddings = self.embedding_function.center_embeddings(right_sentence_vectorized.to(self.embedding_device)).to(self.device)
         if self.flip_right_sentence:
-            mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted)
+            mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted, which_lstm=2)
         else:
-            mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted, which_lst=2)
+            mwe_right = self.mwe_f(right_part_embeddings[rpv_lens_idx], rpv_lens_sorted)
 
         mwe_right = torch.zeros_like(mwe_right).to(mwe_right.device).scatter_(0, rpv_lens_idx.unsqueeze(dim=1).expand(-1, mwe_right.shape[1]).to(mwe_right.device), mwe_right) # unsort
         mwe_right = mwe_right.unsqueeze(dim=1).expand(-1, left_context.shape[1], -1).reshape(-1, mwe_right.shape[1])[lc_not_pad]
