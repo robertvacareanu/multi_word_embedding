@@ -178,7 +178,7 @@ class MWETrain(object):
             self.optimizer, factor=0.5, patience=3, min_lr=0.0005, cooldown=0, )
         
         self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
-        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=8, shuffle=True,
+        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
         if 'heldout_data' in params:
             heldout_params = {}
@@ -188,7 +188,7 @@ class MWETrain(object):
             heldout_params['train_file']=params['heldout_data']
 
             self.dev_dataset = dataset_function_map[params['train_objective']](heldout_params)
-            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=4, shuffle=True,
+            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=1, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
 
         print(len(self.generator))
