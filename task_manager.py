@@ -78,17 +78,17 @@ class TaskManager():
         scores = []
 
         models = [
-            LogisticRegression(multi_class="multinomial", penalty='l2', C=0.5, solver="sag", n_jobs=20),
-            # LogisticRegression(multi_class="multinomial", penalty='l2', C=1,   solver="sag", n_jobs=20),
-            # LogisticRegression(multi_class="multinomial", penalty='l2', C=2,   solver="sag", n_jobs=20),
-            # LogisticRegression(multi_class="multinomial", penalty='l2', C=5,   solver="sag", n_jobs=20),
-            # LogisticRegression(multi_class="multinomial", penalty='l2', C=10,  solver="sag", n_jobs=20),
-            # LinearSVC(penalty='l2', dual=False, C=0.5,),
-            # LinearSVC(penalty='l2', dual=False, C=1,  ),
-            # LinearSVC(penalty='l2', dual=False, C=2,  ),
-            # LinearSVC(penalty='l2', dual=False, C=5,  ),
-            # LinearSVC(penalty='l2', dual=False, C=10, )
-            # 
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=0.5, solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=1,   solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=2,   solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=5,   solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=10,  solver="sag", n_jobs=20, max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=0.5, max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=1,   max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=2,   max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=5,   max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=10,  max_iter=500,)
+            
             # LogisticRegression(multi_class="multinomial", solver="sag", n_jobs=20)
         ]
         for model in models:
