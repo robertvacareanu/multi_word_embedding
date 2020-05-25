@@ -166,7 +166,7 @@ class Evaluation2(object):
 
         prediction = self.te.predict(dev_x_mwe)
         # report = metrics.classification.classification_report(dev_y, predict)
-        return prediction, dev_y, precision_score(prediction, dev_y, average='micro'), recall_score(prediction, dev_y, average='micro'), f1_score(prediction, dev_y, average='micro'), precision_score(prediction, dev_y, average='macro'), recall_score(prediction, dev_y, average='macro'), f1_score(prediction, dev_y, average='weighted')
+        return prediction, dev_y, precision_score(dev_y, prediction, average='micro'), recall_score(dev_y, prediction, average='micro'), f1_score(dev_y, prediction, average='micro'), precision_score(dev_y, prediction, average='macro'), recall_score(dev_y, prediction, average='macro'), f1_score(dev_y, prediction, average='weighted')
 
 
 # Should be updated with the new way evaluation is performed or deleted
