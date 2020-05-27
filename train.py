@@ -143,7 +143,7 @@ class MWETrain(object):
                     exit()
 
         print(self.sg_embeddings.context_embeddings.weight.shape[0])
-        if self.sg_embeddings.context_embeddings.weight.shape[0] > 2000000:
+        if self.sg_embeddings.context_embeddings.weight.shape[0] > 7500000:
             print("Store embeddings on cpu")
             self.embedding_device = torch.device('cpu')
         else:
@@ -178,7 +178,7 @@ class MWETrain(object):
             self.optimizer, factor=0.5, patience=3, min_lr=0.0005, cooldown=0, )
         
         self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
-        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True,
+        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=4, shuffle=True,
                                                      collate_fn=lambda nparr: nparr)
         if 'heldout_data' in params:
             heldout_params = {}
