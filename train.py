@@ -282,7 +282,7 @@ class MWETrain(object):
     def eval(self):
         tm = TaskManager()
         self.task_model.eval()
-        score, model_number = tm.evaluateOnTratz(self.params, self.task_model.mwe_f, self.sg_embeddings, self.embedding_device, self.device)
+        score, model_number = tm.evaluateOnTratzBestModel(self.params, self.task_model.mwe_f, self.sg_embeddings, self.embedding_device, self.device)
         print(f"Score: {score} - {model_number}")
         return 0
 

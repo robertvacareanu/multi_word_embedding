@@ -100,6 +100,41 @@ class TaskManager():
         
         return np.max(scores), np.argmax(scores)
 
+    def evaluateOnTratzBestModel(self, params, mwe_f, sg_embeddings, embedding_device, device):
+        scores = []
+
+        models = [
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=0.5, solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=1,   solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=2,   solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=5,   solver="sag", n_jobs=20, max_iter=500,),
+            LogisticRegression(multi_class="multinomial", penalty='l2', C=10,  solver="sag", n_jobs=20, max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=0.5, max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=1,   max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=2,   max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=5,   max_iter=500,),
+            LinearSVC(penalty='l2', dual=False, C=10,  max_iter=500,)
+            
+            # LogisticRegression(multi_class="multinomial", solver="sag", n_jobs=20)
+        ]
+        # TODO replace this with more generic (train,val,test as params). Used this right now to avoid rewriting the config files
+        val_path_splitted = params['evaluation']['evaluation_dev_file'].split('/')
+        val_path = '/'.join(val_path_splitted[:-1]) + '/val.tsv'
+        for model in models:
+            evaluation = Evaluation2(params['evaluation']['evaluation_train_file'],
+                            val_path, 
+                            mwe_f, sg_embeddings, params['vocabulary_path'], embedding_device=embedding_device, device=device, te=model)
+            score = float(evaluation.evaluate()[-1])
+            scores.append(score)
+        
+        best_model = np.argmax(scores)
+        print(f"Best model on dev: {best_model} with {np.max(scores)}")
+        
+        evaluation = Evaluation2(params['evaluation']['evaluation_train_file'],
+                            params['evaluation']['evaluation_dev_file'], 
+                            mwe_f, sg_embeddings, params['vocabulary_path'], embedding_device=embedding_device, device=device, te=models[best_model])
+        return float(evaluation.evaluate()[-1]), best_model
+
     def evaluateOnHeldoutDataset(self, params, task_model, generator, batch_construction):
         running_epoch_loss = []
         for batch in generator:
