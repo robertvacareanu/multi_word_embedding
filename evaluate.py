@@ -168,6 +168,109 @@ class Evaluation2(object):
         # report = metrics.classification.classification_report(dev_y, predict)
         return prediction, dev_y, precision_score(dev_y, prediction, average='micro'), recall_score(dev_y, prediction, average='micro'), f1_score(dev_y, prediction, average='micro'), precision_score(dev_y, prediction, average='macro'), recall_score(dev_y, prediction, average='macro'), f1_score(dev_y, prediction, average='weighted')
 
+    def evaluateWithContext(self, new_train_x, new_train_y, context, test_sentences):
+        def prepareContext(line, embeddings, vocabulary, embedding_device, device, window_size=2):
+            words = line.split(' ')
+            if len(list(filter(lambda x: '_' in x, words))) == 0:
+                print(line)
+                exit()
+            entity = list(filter(lambda x: '_' in x, words))[0]
+            index = words.index(entity)
+            span = (index, index+1) # Because the mwe are merged with '_', making them, essentially, as a single word
+
+            lc = words[max(0, span[0]-window_size):span[0]]
+            rc = words[span[1]:span[1]+window_size]
+            entity = entity.split('_')
+            left_sentence_vectorized = torch.tensor(vocabulary.to_input_array(words[0:span[0]] + entity))
+            right_sentence_vectorized = torch.tensor(vocabulary.to_input_array(list(reversed(entity + words[span[1]:]))))
+            # print(left_sentence_vectorized.shape)
+            # print(right_sentence_vectorized.shape)
+            # print(embeddings.center_embeddings(left_sentence_vectorized.to(embedding_device)).shape)
+            # print(embeddings.center_embeddings(right_sentence_vectorized.to(embedding_device)).shape)
+            left_part_embeddings = embeddings.center_embeddings(left_sentence_vectorized.to(embedding_device)).to(device).unsqueeze(0)
+            right_part_embeddings = embeddings.center_embeddings(right_sentence_vectorized.to(embedding_device)).to(device).unsqueeze(0)
+            return left_part_embeddings, right_part_embeddings, len(left_sentence_vectorized), len(right_sentence_vectorized)
+
+        train_x = ['_'.join(self.train_dataset[x][0].split(" ")) for x in range(len(self.train_dataset))]
+        train_y = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+        dev_x = ['_'.join(self.dev_dataset[x][0].split(" ")) for x in range(len(self.dev_dataset))]
+        dev_y = [self.dev_dataset[x][1] for x in range(len(self.dev_dataset))]
+
+
+        train_y = self.label_vocab.to_input_tensor(train_y, self.embedding_device).cpu().detach().numpy()
+        dev_y = self.label_vocab.to_input_tensor(dev_y, self.embedding_device).cpu().detach().numpy()
+        # /work/rvacarenu/research/linnaeus/test_sentences
+
+        if new_train_x is None and new_train_y is None and context is None:
+            context = open(test_sentences).readlines()
+            context = dict([[x.split('\t')[0], [z.strip() for z in x.split('\t')[1:] if z.strip() != '' and '_' in z]] for x in context])
+
+            # construct new train, where each sentence will get the same label
+            new_train_x = []
+            # new_train_x_lstm2 = []
+            new_train_y = []
+            for tx, lx in zip(train_x, train_y):
+                if context[tx] != [''] and len(context[tx]) > 0:
+                    for sentence in context[tx][:10]:
+                        if len(list(filter(lambda x: '_' in x, sentence.split(' ')))) == 0:
+                            print(tx)
+                            print(sentence)
+                            print(len(context[tx]))
+                            print(context[tx][:5])
+                            exit()
+                        left, right, ll, rl = prepareContext(sentence, self.embedding_function, self.vocabulary, self.embedding_device, self.device)
+                        new_train_x.append(((self.evaluation_model.forward(left, [ll], which_lstm=1) + self.evaluation_model.forward(right, [rl], which_lstm=2)) / 2).cpu().detach().numpy())
+                        new_train_y.append(lx)
+                else:
+                    mwe = self.vocabulary.to_input_tensor([tx.split('_')], self.embedding_device)
+                    mwe = self.embedding_function.center_embeddings(mwe).to(self.device)
+                    new_train_x.append(self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy())
+                    new_train_y.append(lx)
+
+            new_train_x = np.array(new_train_x).squeeze(1)
+            new_train_y = np.array(new_train_y)#.squeeze(1)
+        # print(new_train_x)
+        # print(new_train_y)
+
+        # print(np.array(new_train_x).shape)
+        # print(np.array(new_train_y).shape)
+        # exit()
+        from datetime import datetime
+        print(datetime.now())
+        self.te.fit(new_train_x, new_train_y)
+        print(datetime.now())
+
+
+
+        # Prediction
+        prediction = []
+        # print(len(list(zip(dev_x, dev_y))))
+        for dx, lx in zip(dev_x, dev_y):
+            current_dx = []
+            if context[dx] != [''] and len(context[dx]) > 0:
+                for sentence in context[dx][:10]:
+                    left, right, ll, rl = prepareContext(sentence, self.embedding_function, self.vocabulary, self.embedding_device, self.device)
+                    current_dx.append(((self.evaluation_model.forward(left, [ll], which_lstm=1) + self.evaluation_model.forward(right, [rl], which_lstm=2)) / 2).cpu().detach().numpy())
+                current_dx = np.array(current_dx)#.squeeze(1)
+                current_dx = current_dx.squeeze(1)
+                prediction_current_dx = self.te.predict(current_dx)
+                proba = self.te.predict_proba(current_dx)
+                proba = (1 - (1-proba).prod(axis=0))
+
+                prediction.append(self.te.classes_[proba.argmax()])
+            else:
+                mwe = self.vocabulary.to_input_tensor([dx.split(' ')], self.embedding_device)
+                mwe = self.embedding_function.center_embeddings(mwe).to(self.device)
+                mwe_dx = self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy()
+                # print(f"B:{mwe_dx.shape}")
+                # print(mwe_dx.shape)
+                # print(f"bpredicted: {self.te.predict(mwe_dx)}")
+                prediction.append(self.te.predict(mwe_dx)[0])
+        
+        print(f1_score(dev_y, prediction, average="weighted"))
+
+        return np.array(prediction), np.array(dev_y), new_train_x, new_train_y, context, f1_score(dev_y, prediction, average='weighted')
+
 
 # Should be updated with the new way evaluation is performed or deleted
 if __name__ == '__main__':

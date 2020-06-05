@@ -91,6 +91,7 @@ class LSTMMweModelManualBidirectional(nn.Module):
             _, (last_hidden, _) = self.lstm2(x)
         elif which_lstm == 0:
             _, (last_hidden1, _) = self.lstm1(x)
+            x = nn.utils.rnn.pack_padded_sequence(batch_mwe.flip(1), mwe_lengths, batch_first=True)
             _, (last_hidden2, _) = self.lstm2(x)
             last_hidden1 = last_hidden1.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)
             last_hidden2 = last_hidden2.view(self.num_layers, 1, batch_mwe.shape[0], self.hidden_size)
