@@ -10,8 +10,7 @@ def predict_majority_head(train_path, test_path):
     prediction_dict = dict(list(t.index.values))
     gold = test['label'].values
     labels = train['label'].values
-    scores = [f1_score(gold, [prediction_dict[x] if x in prediction_dict else np.random.choice(labels) for x in test['c2']], average='weighted') * 100 for z in range(1000)]
-    # scores = [f1_score(gold, [prediction_dict[x] if x in prediction_dict else 'x' for x in test['c2']], average='weighted') * 100 for z in range(10)]
+    # scores = [f1_score(gold, [prediction_dict[x] if x in prediction_dict else np.random.choice(labels) for x in test['c2']], average='weighted') * 100 for z in range(1000)]
+    scores = [f1_score(gold, [prediction_dict[x] if x in prediction_dict else 'x' for x in test['c2']], average='weighted') * 100 for z in range(10)]
     print(np.mean(scores))
     print(np.std(scores))
-
