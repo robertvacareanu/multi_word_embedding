@@ -85,3 +85,46 @@ python -i model_evaluation.py \
 --vocabulary-path1 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/vocab/vocab_nc_vocab_50000.json \
 --vocabulary-path2 /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/vocab/vocab_nc_vocab_50000.json
     """
+
+
+
+
+
+
+
+
+"""
+PATHS:
+/data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_normal_complete_rs1
+/data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_normal_complete_rs2
+/data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_normal_complete_rs3
+
+
+/data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_sentencewise_complete_rs1
+/data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_sentencewise_complete_rs2
+/data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_sentencewise_complete_rs3
+
+
+
+
+/data/nlp/corpora/multi_word_embedding/data/models_updated/unsupervised/mwe_f_normal_complete_rs1
+/data/nlp/corpora/multi_word_embedding/data/models_updated/unsupervised/mwe_f_normal_complete_rs2
+/data/nlp/corpora/multi_word_embedding/data/models_updated/unsupervised/mwe_f_normal_complete_rs3
+
+
+/data/nlp/corpora/multi_word_embedding/data/models_updated/unsupervised/mwe_f_sentencewise_frs_complete_rs1
+/data/nlp/corpora/multi_word_embedding/data/models_updated/unsupervised/mwe_f_sentencewise_frs_complete_rs2
+/data/nlp/corpora/multi_word_embedding/data/models_updated/unsupervised/mwe_f_sentencewise_frs_complete_rs3
+
+
+
+
+
+
+
+
+
+python train.py --config-file /data/nlp/corpora/multi_word_embedding/data/models_updated/base_supervised_normal_training_config_cutoff5.json --random-seed 2 --heldout-data /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/en_corpus_tokenized_bigrams_complete_test --which-cuda 1 --save-path /data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_normal_complete_rs2 > supervised_normal2
+python train.py --config-file /data/nlp/corpora/multi_word_embedding/data/models_updated/base_supervised_sentencewise_training_config_cutoff5.json --random-seed 3 --heldout-data /data/nlp/corpora/multi_word_embedding/data/wikipedia/tokenized_bigrams_oc_nctrain_ncvocab/en_corpus_tokenized_bigrams_complete_test --which-cuda 2 --save-path /data/nlp/corpora/multi_word_embedding/data/models_updated/supervised/mwe_f_sentencewise_complete_rs3 > supervised_sentencewise3
+
+"""

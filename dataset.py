@@ -83,8 +83,18 @@ class SkipGramMinimizationDataset(data.Dataset):
             self.length = count
         self.dataset = pd.read_csv(self.path, sep='\n', header=None, quoting=3).values
         self.negative_examples_cache = queue.Queue()
-        self.sampler = Sampler(self.vocabulary.counts)
-        counts = np.array(vocabulary.counts)
+
+        # Some entries in the vocabulary might point to <unk> token (with id 1). This is because
+        # you may wish to not consider the whole vocabulary when constructing the embeddings
+        # As such, we have to account for this when sampling.
+        # Initially, by giving the vocabulary.counts as parameter, we implicitly assumed that there are
+        # len(vocabulary.counts) number of unique ids in vocabulary.element2id.values()
+        # This becomes false when some words point to the unknown word
+        adjusted_counts = np.vstack([np.array(list(vocabulary.element2id.values())), np.array(vocabulary.counts)]).T
+        temporary_dataframe = pd.DataFrame({'C1': adjusted_counts[:,0],'C2': adjusted_counts[:,1]})
+        adjusted_counts = temporary_dataframe.groupby(by=['C1']).sum().values.reshape(-1)
+        self.sampler = Sampler(adjusted_counts)
+        counts = adjusted_counts
         counts = counts ** (3/4)
         counts /= counts.sum()
         self.p = counts

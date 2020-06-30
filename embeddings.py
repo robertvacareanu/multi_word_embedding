@@ -70,6 +70,25 @@ class SkipGramEmbeddings(nn.Module):
         center_context_emb = np.concatenate((np.expand_dims(words_center_emb, axis=0),np.expand_dims(words_context_emb, axis=0)), axis=0)
         return center_context_emb
 
+    @staticmethod
+    def from_embedding_file_cutoff(model, vocabulary, cutoff = 5):
+        counts = np.array(vocabulary.counts)
+        def index_of(word):
+            return model.wv.vocab[word].index if word in model.wv.vocab else model.wv.vocab['<unk>'].index
+        words = [w for i,w in enumerate(vocabulary.element2id.keys()) if counts[i] > cutoff]
+        unknown_words = [w for i,w in enumerate(vocabulary.element2id.keys()) if counts[i] <= 2]
+        center_unk = model.wv.vectors[[index_of(x) for x in unknown_words]].mean(axis=0) #model.wv.vectors[model.wv.vocab['<unk>'].index]
+        context_unk = model.trainables.syn1neg[[index_of(x) for x in unknown_words]].mean(axis=0)
+        # words_center_emb = np.vstack([np.zeros(center_unk.shape), center_unk]+[model.wv.vectors[model.wv.vocab[w].index] if condition(w) else center_unk for w in words])
+        words_center_emb = np.vstack([np.zeros(center_unk.shape), center_unk]+[model.wv.vectors[index_of(w)] if np.all(model.wv.vectors[index_of(w)])!=0 else center_unk for w in words])
+        words_context_emb = np.vstack([np.zeros(context_unk.shape), context_unk]+[model.trainables.syn1neg[index_of(
+            w)] if np.all(model.trainables.syn1neg[index_of(w)]) != 0 else center_unk for w in words])
+        """
+        mean_words_in = np.average(np.vstack([model[w] for w in words if w in model]), axis=0)
+        words_emb = np.vstack([np.zeros(mean_words_in.shape), mean_words_in]+[model[w] if w in model else mean_words_in for w in words])
+        """
+        center_context_emb = np.concatenate((np.expand_dims(words_center_emb, axis=0),np.expand_dims(words_context_emb, axis=0)), axis=0)
+        return center_context_emb
 
     def __call__(self, word_tensor: torch.tensor):
         """

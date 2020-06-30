@@ -14,7 +14,7 @@ from datetime import datetime
 from dataset import WordWiseSGMweDataset, SkipGramMinimizationDataset, JointTrainingSGMinimizationDataset, SentenceWiseSGMweDataset, DirectMinimizationDataset
 from embeddings import SkipGramEmbeddings, RandomInitializedEmbeddings
 from evaluate import Evaluation, Evaluation2
-from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel, AttentionWeightedModel, LSTMMweModelManualBidirectional
+from mwe_function_model import LSTMMultiply, LSTMMweModel, FullAdd, MultiplyMean, MultiplyAdd, CNNMweModel, LSTMMweModelPool, GRUMweModel, AttentionWeightedModel
 from task_model import MWESkipGramTaskModel, MWEMeanSquareErrorTaskModel, MWESentenceSkipGramTaskModel, MWEJointTraining, AutoEncoderPreTraining
 from task_manager import TaskManager
 from utils import init_random, format_number, read_wikipedia_corpus, flatten
@@ -44,8 +44,7 @@ class MWETrain(object):
         # dictionary containing the mappings from string to mwe function.
         mwe_function_map = {'LSTMMultiply': LSTMMultiply, 'LSTMMweModel': LSTMMweModel,
                             'FullAdd': FullAdd, 'MultiplyMean': MultiplyMean, 'MultiplyAdd': MultiplyAdd,
-                            'CNNMweModel': CNNMweModel, 'LSTMMweModelPool': LSTMMweModelPool, 'GRUMweModel': GRUMweModel, 'AttentionWeightedModel': AttentionWeightedModel, 
-                            'LSTMMweModelManualBidirectional': LSTMMweModelManualBidirectional,
+                            'CNNMweModel': CNNMweModel, 'LSTMMweModelPool': LSTMMweModelPool, 'GRUMweModel': GRUMweModel, 'AttentionWeightedModel': AttentionWeightedModel,
                             'Max': Max, 'Average': Average, 'RandomLSTM': RandomLSTM}
 
         # Different training regimes may need different data format (or more data)
@@ -86,11 +85,8 @@ class MWETrain(object):
 
         print("Vocabulary - done")
 
-        if params['which_cuda'] is None or int(params['which_cuda']) < 0 or not torch.cuda.is_available():
-            self.device = torch.device('cpu')
-        else:
-            self.device = torch.device(f"cuda:{params['which_cuda']}")
-        print(f"Training on {self.device}")
+        self.device = torch.device(f"cuda:{params['which_cuda']}" if torch.cuda.is_available(
+        ) and params['which_cuda'] is not None else "cpu")
 
         negative_sampling_distribution = torch.tensor(
             self.vocabulary.counts).float().to(self.device)
@@ -104,21 +100,15 @@ class MWETrain(object):
             'DirectMinimization': {'train_file': params['train_file']},
             'SkipGramMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
                                     'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
-                                    'negative_examples_distribution': nsd},
+                                    'negative_examples_distribution': nsd, 'full_sentence': False},
             'SkipGramSentenceMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
-                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 'flip_right_sentence': params['flip_right_sentence'],
-                                    'negative_examples_distribution': nsd},
+                                    'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
+                                    'negative_examples_distribution': nsd, 'full_sentence': False},
             'JointTrainingSkipGramMinimization': {'window_size': params['window_size'], 'number_of_negative_examples': params['number_of_negative_examples'], 
                                     'train_file': params['train_file'], 'vocabulary': self.vocabulary, 
                                     'negative_examples_distribution': nsd}
         }
 
-        additional_info = {
-            'DirectMinimization': {},
-            'SkipGramMinimization': {},
-            'SkipGramSentenceMinimization': {'flip_right_sentence': params['flip_right_sentence']},
-            'JointTrainingSkipGramMinimization': {}
-        }
 
         self.num_epochs = params['num_epochs']
         self.save_path = params['save_path']
@@ -142,35 +132,17 @@ class MWETrain(object):
                                 params['save_embeddings'])
                     exit()
 
-        print(self.sg_embeddings.context_embeddings.weight.shape[0])
-        if self.sg_embeddings.context_embeddings.weight.shape[0] > 2000000:
-            print("Store embeddings on cpu")
-            self.embedding_device = torch.device('cpu')
-        else:
-            print("Store embeddings on cuda")
-            self.embedding_device = self.device
 
         print("Embeddings - done")
         # init_random(1)
         self.mwe_f = mwe_function_map[params['model']['name']](
             params['model']['attributes']).to(self.device)
-
-        # Add second one; Do not change rng if we don't add
-        if params['flip_right_sentence']:
-            additional_info['SkipGramSentenceMinimization']['second_mwe_f'] = self.mwe_f = mwe_function_map[params['model']['name']](
-            params['model']['attributes']).to(self.device)
-
         if params['pretrained_model'] is not None:
-            self.mwe_f.load_state_dict(torch.load(f"{params['pretrained_model']}.pt", map_location=self.device))
+            self.mwe_f.load_state_dict(torch.load(f"{params['pretrained_model']}.pt"))
         self.task_model = self.task_model_types[params['train_objective']](
-            self.sg_embeddings, self.mwe_f, self.embedding_device, self.device, additional_info[params['train_objective']])#.to(self.device)
-        self.task_model.mwe_f.to(self.device)
-        self.task_model.embedding_function.to(self.embedding_device) # embeddings can get too big for GPU
-
+            self.sg_embeddings, self.mwe_f).to(self.device)
         self.task_model.train()
 
-        self.optimizer = torch.optim.Adagrad(
-            self.task_model.parameters(), lr=self.learning_rate, weight_decay=params['weight_decay'])
         # self.optimizer = torch.optim.Adam(
         # self.task_model.parameters(), lr=self.learning_rate, weight_decay=params['weight_decay'])
         self.optimizer = torch.optim.SGD(
@@ -180,24 +152,12 @@ class MWETrain(object):
             self.optimizer, factor=0.5, patience=3, min_lr=0.0005, cooldown=0, )
         
         self.dataset = dataset_function_map[params['train_objective']](dataset_params[params['train_objective']])
-        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=4, shuffle=True,
+        self.generator = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, num_workers=10, shuffle=False,
                                                      collate_fn=lambda nparr: nparr)
-        if 'heldout_data' in params:
-            heldout_params = {}
-            for key in dataset_params[params['train_objective']]:
-                heldout_params[key] = dataset_params[params['train_objective']][key]
-
-            heldout_params['train_file']=params['heldout_data']
-
-            self.dev_dataset = dataset_function_map[params['train_objective']](heldout_params)
-            self.dev_generator = torch.utils.data.DataLoader(self.dev_dataset, batch_size=self.batch_size, num_workers=1, shuffle=True,
-                                                     collate_fn=lambda nparr: nparr)
-
         print(len(self.generator))
 
         self.number_of_iter = 1000
         self.debug = False
-        print(f"Model norm: {format_number(np.sum([torch.sum(torch.abs(x)) for x in self.task_model.mwe_f.parameters()]))}")
 
 
     def train(self):
@@ -209,11 +169,14 @@ class MWETrain(object):
         performance = None
         epochs_since_last_improvement = 0
 
+        ptm = AutoEncoderPreTraining(self.sg_embeddings, self.mwe_f)
+        optimizer = torch.optim.SGD(ptm.mwe_f.parameters(), lr=self.learning_rate, weight_decay=params['weight_decay'])
+        tm.step(task_model=ptm, generator=self.generator, optimizer=optimizer, batch_construction=self.prepare_autoencoder_batch)
         for epoch in range(self.num_epochs):
             running_epoch_loss = []
             if epochs_since_last_improvement < self.params['early_stopping']:
                 running_epoch_loss=tm.step(task_model=self.task_model, generator=self.generator, optimizer=self.optimizer, batch_construction=self.minimization_types[self.params['train_objective']])
-            else: # Stop, because no improvement for more than threshold
+            else:
                 print(
                     f"No improvements for {epochs_since_last_improvement}. Training stopped. Report saved at: {self.params['save_path']}_report")
                 if not os.path.exists(f'{self.params["save_path"]}_report'):
@@ -228,11 +191,9 @@ class MWETrain(object):
                         f"{performance}\t{format_number(time.time() - begin_time)}\t{self.params['evaluation']['evaluation_dev_file']}\t{self.params['random_seed']}\t{datetime.now()}\n")
 
                 return
-            torch.save(self.task_model.mwe_f.state_dict(), f"{self.save_path}_{epoch}.pt")
-            # Evaluate. Separate branch for clarity
+
             if epochs_since_last_improvement < self.params['early_stopping']:
                 # Prepare for evaluation
-                
                 # Zero the gradients
                 self.optimizer.zero_grad()
                 # Freeze the network for evaluation
@@ -240,14 +201,9 @@ class MWETrain(object):
                     param.requires_grad = False
 
                 self.task_model.eval()
-                if 'heldout_data' in self.params:
-                    score = -tm.evaluateOnHeldoutDataset(params=self.params, task_model=self.task_model, generator=self.dev_generator,
-                                                        batch_construction=self.minimization_types[self.params['train_objective']])
-                else:
-                    score, model_number = tm.evaluateOnTratz(self.params, self.task_model.mwe_f, self.sg_embeddings, self.embedding_device, self.device)
-                    print(f'Max was with: {model_number}')
 
-
+                score, model_number = tm.evaluate(self.params, self.task_model.mwe_f, self.sg_embeddings, self.device)
+                print(f'Max was with: {model_number}')
                 # Unfreeze the network after evaluation
                 for param in self.task_model.mwe_f.parameters():
                     param.requires_grad = True
@@ -280,43 +236,6 @@ class MWETrain(object):
                 self.task_model.train()
 
         f.close()
-
-    def eval(self):
-        tm = TaskManager()
-        # models = [
-            # "/data/nlp/corpora/multi_word_embedding/data/models/unsupervised/mwe_f_ft_2_200_complete_rs1_wd00005",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/unsupervised/mwe_f_ft_2_200_complete_rs2_wd00005",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/unsupervised/mwe_f_ft_2_200_complete_rs3_wd00005",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/unsupervised/mwe_f_ft_2_200_complete_rs4_wd00005",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/unsupervised/mwe_f_ft_2_200_complete_rs5_wd00005",
-        # ]
-        models = [
-            "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_normal_complete_rs1",
-            "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_normal_complete_rs2",
-            "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_normal_complete_rs3",
-            "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_normal_complete_rs4",
-            "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_normal_complete_rs5",
-
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise_frt_complete_rs1",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_frt_rs2",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_frt_rs3",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_frt_rs4",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_frt_rs5",
-
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise_complete_rs1",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_rs2",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_rs3",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_rs4",
-            # "/data/nlp/corpora/multi_word_embedding/data/models/supervised/mwe_f_ft_2_200_sentencewise1_complete_rs5",
-        ]
-        # for i, model in enumerate(models):
-            # init_random(i+1)
-            # print(model)
-        # self.task_model.mwe_f.load_state_dict(torch.load(f"{model}.pt", map_location=self.device))
-        # self.task_model.eval()
-        score, model_number = tm.evaluateOnTratzBestModel(self.params, self.task_model.mwe_f, self.sg_embeddings, self.embedding_device, self.device)
-        # print(f"Score: {score} - {model_number}\n")
-        return 0
 
     def save(self, path):
         torch.save(self.task_model.mwe_f.state_dict(), f"{path}")
@@ -429,6 +348,16 @@ class MWETrain(object):
         return left_sentence_vectorized, right_sentence_vectorized, right_context_vectorized, left_context_vectorized, {'lpv_len': torch.tensor(lp_lens), 
                     'rpv_len': torch.tensor(rp_lens)}, negative_for_right_sentence_vectorized, negative_for_left_sentence_vectorized,
 
+    def prepare_autoencoder_batch(self, batch):
+        batch_size = len(batch)
+
+        entities_lens = [batch[x][3] for x in range(batch_size)]
+        max_entity_len = max(entities_lens)
+
+        entities = [batch[x][0].tolist() + (max_entity_len - batch[x][3]) * [self.vocabulary.pad_id] for x in range(batch_size)] # pad max_entity len
+        entities_vectorized = torch.tensor(entities).to(self.device)
+        
+        return 0
 
 
 if __name__ == '__main__':
@@ -463,16 +392,8 @@ if __name__ == '__main__':
     parser.add_argument("--random-seed", type=int, required=False,
                         help="Random seed to use. Default: 1")
     parser.add_argument("--pretrained-model", type=str, required=False, default=None, help="Path to the pretrained model. Used to fine tune")
-    parser.add_argument("--heldout-data", type=str, required=False, default=None, help="Path to the heldout data. Used for early stopping")
-    parser.add_argument("--only-eval", action='store_true', help="Can be used to only evaluate a pretrained model")
-    help_message = "In the case of sentence-wise skip-gram minimization, this flags signals whether " \
-        "to flip the right part of the sentence. In this way, the LSTM might go from start to entity to predict " \
-        "the right context, and from end to entity to predict the left context. Doing this makes the LSTM always finish " \
-        " on the entity, providing, thus, a more uniform process"
-    parser.add_argument("--flip-right-sentence", action='store_true', help=help_message)
 
     result = parser.parse_args()
-
     config = json.load(open(result.config_file))
     model_config = json.load(open(config['model']))
     config = {**config, **model_config}
@@ -480,7 +401,7 @@ if __name__ == '__main__':
     print(result)
     print(config)
     # Override based on cli arguments
-    for update_param in ['learning_rate', 'batch_size', 'num_epochs', 'number_of_negative_examples', 'save_path', 'which_cuda', 'weight_decay', 'early_stopping', 'random_seed', 'pretrained_model', 'heldout_data', 'flip_right_sentence']:
+    for update_param in ['learning_rate', 'batch_size', 'num_epochs', 'number_of_negative_examples', 'save_path', 'which_cuda', 'weight_decay', 'early_stopping', 'random_seed', 'pretrained_model']:
         if result[update_param] is not None:
             config[update_param] = result[update_param]
 
@@ -498,9 +419,4 @@ if __name__ == '__main__':
     if result['pretrained_model'] is not None:
         print(f"Loading pretrained model from {result['pretrained_model']}")
     train_obj = MWETrain(config)
-    if result['only_eval']:
-        print("Only evaluate the pretrained model")
-        train_obj.eval()
-    else:
-        print("Start training")
-        train_obj.train()
+    train_obj.train()

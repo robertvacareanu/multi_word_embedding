@@ -228,3 +228,38 @@ class AbstractVocabulary(object):
         """
         loaded = json.load(open(filepath, "r"))
         return AbstractVocabulary(dict(element2id=loaded['word2id'], counts=loaded['counts']))
+
+    @staticmethod
+    def load_with_threshold(filepath, cutoff = 5):
+        """
+        :param filepath: (str) from where to load the vocabulary
+        :return Vocabulary loaded
+        """
+        loaded = json.load(open(filepath, "r"))
+        loaded_dict = loaded['word2id']
+        loaded_dict_list = list(loaded['word2id'])[2:]
+        loaded_counts = list(loaded['counts'])[2:]
+
+
+        element2id = dict()
+        element2id['<pad>'] = 0
+        element2id['<unk>'] = 1
+        counts  = [0, 0]
+        to_add = []
+        dont_add = []
+        # Map words with count under cutoff to the unknown token
+        for index,key in enumerate(loaded_dict_list):
+            if loaded_counts[index] <= cutoff:
+                dont_add.append((key, loaded_dict[key], loaded_counts[index]))
+            else:
+                to_add.append((key, loaded_dict[key], loaded_counts[index]))
+        
+        for add in to_add:
+            element_id = element2id[add[0]] = len(element2id)
+            counts.append(add[2])
+        for add in dont_add:
+            element2id[add[0]] = 1
+            counts.append(add[2])
+
+        
+        return AbstractVocabulary(dict(element2id=element2id, counts=counts))

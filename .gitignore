@@ -130,5 +130,6 @@ dmypy.json
 
 
 .history/
+__pycache__
 .metals/
 .vscode/

@@ -134,6 +134,7 @@ class Evaluation2(object):
         self.epochs = epochs
         self.device = device
         self.embedding_device = embedding_device
+        self.train_path = train_path
         # self.cpu_device = torch.device('cpu')
 
         self.te = te
@@ -148,6 +149,11 @@ class Evaluation2(object):
         dev_x = [self.dev_dataset[x][0].split(" ") for x in range(len(self.dev_dataset))]
         dev_y = [self.dev_dataset[x][1] for x in range(len(self.dev_dataset))]
 
+        # train_x1 = [self.train_dataset[x][0].split(" ") for x in range(len(self.train_dataset))]
+        # train_y1 = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+        # dev_x1 = [self.dev_dataset[x][0].split(" ") for x in range(len(self.dev_dataset))]
+        # dev_y1 = [self.dev_dataset[x][1] for x in range(len(self.dev_dataset))]
+
         train_x = self.vocabulary.to_input_tensor(train_x, self.embedding_device)
         train_y = self.label_vocab.to_input_tensor(train_y, self.embedding_device).cpu().detach().numpy()
         dev_x = self.vocabulary.to_input_tensor(dev_x, self.embedding_device)
@@ -155,6 +161,28 @@ class Evaluation2(object):
         xyz = self.embedding_function.center_embeddings(train_x)
         train_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(train_x).to(self.device), [2]*train_x.shape[0]).cpu().detach().numpy()
         dev_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(dev_x).to(self.device), [2]*dev_x.shape[0]).cpu().detach().numpy()
+        
+
+        # pth = self.train_path.split('/')[-1].split('.')[0]
+        # x = {}
+        # x['train'] = {}
+        # x['test'] = {}
+        # x['train']['x'] = {}
+        # x['test']['x'] = {}
+        # x['train']['y'] = {}
+        # x['test']['y'] = {}
+        # for i, tx in enumerate(train_x1):
+            # x['train']['x']['_'.join(tx)] = train_x_mwe[i]
+        # for i, tx in enumerate(dev_x1):
+            # x['test']['x']['_'.join(tx)] = dev_x_mwe[i]
+        # for tx, lx in zip(train_x1, train_y1):
+            # x['train']['y']['_'.join(tx)] = lx
+        # for tx, lx in zip(dev_x1, dev_y1):
+            # x['test']['y']['_'.join(tx)] = lx
+        # import pickle
+        # with open('zz_withoutcontext1', 'wb') as fin:
+            # pickle.dump(x, fin)
+        # exit()
 
         # print(train_x_mwe.shape)
         # print(dev_x_mwe.shape)
@@ -163,12 +191,14 @@ class Evaluation2(object):
         # exit()
         # print(f"{train_x_mwe.shape}, {train_y.shape}")
         self.te.fit(train_x_mwe, train_y)
-
         prediction = self.te.predict(dev_x_mwe)
+        # print(prediction.tolist())
+        # print(dev_y.tolist())
         # report = metrics.classification.classification_report(dev_y, predict)
         return prediction, dev_y, precision_score(dev_y, prediction, average='micro'), recall_score(dev_y, prediction, average='micro'), f1_score(dev_y, prediction, average='micro'), precision_score(dev_y, prediction, average='macro'), recall_score(dev_y, prediction, average='macro'), f1_score(dev_y, prediction, average='weighted')
 
-    def evaluateWithContext(self, new_train_x, new_train_y, context, test_sentences):
+
+    def evaluateWithContext(self, new_train_x, new_train_y, context, test_sentences='/work/rvacarenu/research/linnaeus/test_sentences4'):
         def prepareContext(line, embeddings, vocabulary, embedding_device, device, window_size=2):
             words = line.split(' ')
             if len(list(filter(lambda x: '_' in x, words))) == 0:
@@ -270,6 +300,206 @@ class Evaluation2(object):
         print(f1_score(dev_y, prediction, average="weighted"))
 
         return np.array(prediction), np.array(dev_y), new_train_x, new_train_y, context, f1_score(dev_y, prediction, average='weighted')
+
+
+    # Different aggregators
+    def evaluateWithContext2(self, new_train_x, new_train_y, context, test_sentences='/work/rvacarenu/research/linnaeus/test_sentences6'):
+        def prepareContext(line, embeddings, vocabulary, embedding_device, device, window_size=2):
+            words = line.split(' ')
+            if len(list(filter(lambda x: '_' in x, words))) == 0:
+                print(line)
+                exit()
+            entity = list(filter(lambda x: '_' in x, words))[0]
+            index = words.index(entity)
+            span = (index, index+1) # Because the mwe are merged with '_', making them, essentially, as a single word
+
+            lc = words[max(0, span[0]-window_size):span[0]]
+            rc = words[span[1]:span[1]+window_size]
+            entity = entity.split('_')
+            left_sentence_vectorized = torch.tensor(vocabulary.to_input_array(words[0:span[0]] + entity))
+            right_sentence_vectorized = torch.tensor(vocabulary.to_input_array(list(reversed(entity + words[span[1]:]))))
+            # print(left_sentence_vectorized.shape)
+            # print(right_sentence_vectorized.shape)
+            # print(embeddings.center_embeddings(left_sentence_vectorized.to(embedding_device)).shape)
+            # print(embeddings.center_embeddings(right_sentence_vectorized.to(embedding_device)).shape)
+            left_part_embeddings = embeddings.center_embeddings(left_sentence_vectorized.to(embedding_device)).to(device).unsqueeze(0)
+            right_part_embeddings = embeddings.center_embeddings(right_sentence_vectorized.to(embedding_device)).to(device).unsqueeze(0)
+            return left_part_embeddings, right_part_embeddings, len(left_sentence_vectorized), len(right_sentence_vectorized)
+
+        train_x = ['_'.join(self.train_dataset[x][0].split(" ")) for x in range(len(self.train_dataset))]
+        train_y = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+        dev_x = ['_'.join(self.dev_dataset[x][0].split(" ")) for x in range(len(self.dev_dataset))]
+        dev_y = [self.dev_dataset[x][1] for x in range(len(self.dev_dataset))]
+
+        train_y = self.label_vocab.to_input_tensor(train_y, self.embedding_device).cpu().detach().numpy()
+        dev_y = self.label_vocab.to_input_tensor(dev_y, self.embedding_device).cpu().detach().numpy()
+        # /work/rvacarenu/research/linnaeus/test_sentences
+
+        if new_train_x is None and new_train_y is None and context is None:
+            context = open(test_sentences).readlines()
+            context = dict([[x.split('\t')[0], [z.strip() for z in x.split('\t')[1:] if z.strip() != '' and '_' in z]] for x in context])
+
+            # construct new train, where each sentence will get the same label
+            new_train_x = []
+            # new_train_x_lstm2 = []
+            new_train_y = []
+            for tx, lx in zip(train_x, train_y):
+                if context[tx] != [''] and len(context[tx]) > 0:
+                    current_training_point = []
+                    for sentence in context[tx]:
+                        if len(list(filter(lambda x: '_' in x, sentence.split(' ')))) == 0:
+                            print(tx)
+                            print(sentence)
+                            print(len(context[tx]))
+                            print(context[tx][:5])
+                            exit()
+                        left, right, ll, rl = prepareContext(sentence, self.embedding_function, self.vocabulary, self.embedding_device, self.device)
+                        current_training_point.append(((self.evaluation_model.forward(left, [ll], which_lstm=1) + self.evaluation_model.forward(right, [rl], which_lstm=2)) / 2).cpu().detach().numpy())
+                    # Aggregation happens here:
+                    new_train_x.append(np.mean(current_training_point, axis=0))
+                else:
+                    mwe = self.vocabulary.to_input_tensor([tx.split('_')], self.embedding_device)
+                    mwe = self.embedding_function.center_embeddings(mwe).to(self.device)
+                    new_train_x.append(self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy())
+                    # new_train_y.append(lx)
+                new_train_y.append(lx)
+            new_train_x = np.array(new_train_x).squeeze(1)
+            new_train_y = np.array(new_train_y)#.squeeze(1)
+
+        from datetime import datetime
+        print(datetime.now())
+        self.te.fit(new_train_x, new_train_y)
+        print(datetime.now())
+
+
+
+        # Prediction
+        prediction = []
+        new_dev_x = []
+        # print(len(list(zip(dev_x, dev_y))))
+        for dx, lx in zip(dev_x, dev_y):
+            current_dx = []
+            if context[dx] != [''] and len(context[dx]) > 0:
+                current_point = []
+                for sentence in context[dx]:
+                    left, right, ll, rl = prepareContext(sentence, self.embedding_function, self.vocabulary, self.embedding_device, self.device)
+                    current_point.append(((self.evaluation_model.forward(left, [ll], which_lstm=1) + self.evaluation_model.forward(right, [rl], which_lstm=2)) / 2).cpu().detach().numpy())
+
+                new_dev_x.append(np.mean(current_point, axis=0))
+            else:
+                mwe = self.vocabulary.to_input_tensor([dx.split(' ')], self.embedding_device)
+                mwe = self.embedding_function.center_embeddings(mwe).to(self.device)
+                mwe_dx = self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy()
+                # print(f"B:{mwe_dx.shape}")
+                # print(mwe_dx.shape)
+                # print(f"bpredicted: {self.te.predict(mwe_dx)}")
+                new_dev_x.append(self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy())
+                # prediction.append(self.te.predict(mwe_dx)[0])
+        new_dev_x = np.array(new_dev_x)
+        # print(new_dev_x.shape)
+        new_dev_x = new_dev_x.squeeze(1)
+        # print(new_dev_x.shape)
+        # exit()
+        prediction = self.te.predict(new_dev_x)
+        print(f1_score(dev_y, prediction, average="weighted"))
+
+        return np.array(prediction), np.array(dev_y), new_train_x, new_train_y, context, f1_score(dev_y, prediction, average='weighted')
+
+
+    def evaluate2(self, dump_path):
+        # THIS function is used only to dump to a file the predictions for a specified model
+        # TODO Maybe take into consideration all? (now only considers those with size 2 -- not clear in the paper)
+        train_x = [self.train_dataset[x][0].split(" ") for x in range(len(self.train_dataset))]
+        train_y = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+
+        train_x1 = [self.train_dataset[x][0].split(" ") for x in range(len(self.train_dataset))]
+        train_y1 = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+
+        train_x = self.vocabulary.to_input_tensor(train_x, self.embedding_device)
+        train_y = self.label_vocab.to_input_tensor(train_y, self.embedding_device).cpu().detach().numpy()
+        train_x_mwe = self.evaluation_model(self.embedding_function.center_embeddings(train_x).to(self.device), [2]*train_x.shape[0]).cpu().detach().numpy()
+
+        pth = self.train_path.split('/')[-1].split('.')[0]
+        x = {}
+        x['x'] = {}
+        x['y'] = {}
+        for i, tx in enumerate(train_x1):
+            x['x']['_'.join(tx)] = train_x_mwe[i]
+        for tx, lx in zip(train_x1, train_y1):
+            x['y']['_'.join(tx)] = lx
+        return x
+        import pickle
+        with open(dump_path, 'wb') as fin:
+            pickle.dump(x, fin)
+        return
+
+    # Only used to dump to file
+    def evaluateWithContext22(self, new_train_x, new_train_y, context, dump_path, test_sentences='/work/rvacarenu/research/linnaeus/test_sentences6'):
+        def prepareContext(line, embeddings, vocabulary, embedding_device, device, window_size=2):
+            words = line.split(' ')
+            if len(list(filter(lambda x: '_' in x, words))) == 0:
+                print(line)
+                exit()
+            entity = list(filter(lambda x: '_' in x, words))[0]
+            index = words.index(entity)
+            span = (index, index+1) # Because the mwe are merged with '_', making them, essentially, as a single word
+
+            lc = words[max(0, span[0]-window_size):span[0]]
+            rc = words[span[1]:span[1]+window_size]
+            entity = entity.split('_')
+            left_sentence_vectorized = torch.tensor(vocabulary.to_input_array(words[0:span[0]] + entity))
+            right_sentence_vectorized = torch.tensor(vocabulary.to_input_array(list(reversed(entity + words[span[1]:]))))
+            # print(left_sentence_vectorized.shape)
+            # print(right_sentence_vectorized.shape)
+            # print(embeddings.center_embeddings(left_sentence_vectorized.to(embedding_device)).shape)
+            # print(embeddings.center_embeddings(right_sentence_vectorized.to(embedding_device)).shape)
+            left_part_embeddings = embeddings.center_embeddings(left_sentence_vectorized.to(embedding_device)).to(device).unsqueeze(0)
+            right_part_embeddings = embeddings.center_embeddings(right_sentence_vectorized.to(embedding_device)).to(device).unsqueeze(0)
+            return left_part_embeddings, right_part_embeddings, len(left_sentence_vectorized), len(right_sentence_vectorized)
+
+        train_x = ['_'.join(self.train_dataset[x][0].split(" ")) for x in range(len(self.train_dataset))]
+        train_y = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+        
+        train_x1 = ['_'.join(self.train_dataset[x][0].split(" ")) for x in range(len(self.train_dataset))]
+        train_y1 = [self.train_dataset[x][1] for x in range(len(self.train_dataset))]
+
+        dev_x = ['_'.join(self.dev_dataset[x][0].split(" ")) for x in range(len(self.dev_dataset))]
+        dev_y = [self.dev_dataset[x][1] for x in range(len(self.dev_dataset))]
+
+        train_y = self.label_vocab.to_input_tensor(train_y, self.embedding_device).cpu().detach().numpy()
+        dev_y = self.label_vocab.to_input_tensor(dev_y, self.embedding_device).cpu().detach().numpy()
+        # /work/rvacarenu/research/linnaeus/test_sentences
+        context = open(test_sentences).readlines()
+        context = dict([[x.split('\t')[0], [z.strip() for z in x.split('\t')[1:] if z.strip() != '' and '_' in z]] for x in context])
+
+        pth = self.train_path.split('/')[-1].split('.')[0]
+        x = {}
+        x['x'] = {}
+        x['y'] = {}
+        for tx, lx in zip(train_x1, train_y1):
+            if context[tx] != [''] and len(context[tx]) > 0:
+                current_training_point = []
+                for sentence in context[tx]:
+                    if len(list(filter(lambda x: '_' in x, sentence.split(' ')))) == 0:
+                        print(tx)
+                        print(sentence)
+                        print(len(context[tx]))
+                        print(context[tx][:5])
+                        exit()
+                    left, right, ll, rl = prepareContext(sentence, self.embedding_function, self.vocabulary, self.embedding_device, self.device)
+                    current_training_point.append(((self.evaluation_model.forward(left, [ll], which_lstm=1) + self.evaluation_model.forward(right, [rl], which_lstm=2)) / 2).cpu().detach().numpy())
+                x['x'][tx] = current_training_point
+            else:
+                mwe = self.vocabulary.to_input_tensor([tx.split('_')], self.embedding_device)
+                mwe = self.embedding_function.center_embeddings(mwe).to(self.device)
+                x['x'][tx] = [self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy()]
+                # new_train_x.append(self.evaluation_model.forward(mwe, [2], which_lstm=0).cpu().detach().numpy())
+            x['y'][tx] = lx
+        return x
+        import pickle
+        with open(dump_path, 'wb') as fin:
+            pickle.dump(x, fin)
+        return 0
 
 
 # Should be updated with the new way evaluation is performed or deleted
